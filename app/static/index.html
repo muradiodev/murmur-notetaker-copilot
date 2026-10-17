@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Murmur Notetaker</title>
+<link rel="icon" href="brand/favicon.ico" sizes="48x48">
+<link rel="icon" href="brand/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
+<link rel="manifest" href="brand/site.webmanifest">
+<meta name="theme-color" content="#3157d5">
+<link rel="stylesheet" href="vendor/phosphor/style.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Text comes from i18n/<lang>.js: data-i18n (text), data-i18n-placeholder, data-i18n-title, data-i18n-aria-label -->
+<div class="app">
+
+  <!-- Top bar: the whole app switches between Murmur Notetaker and Murmur Copilot -->
+  <header class="topbar">
+    <a class="wordmark" href="#/" aria-label="Murmur Notetaker"><svg class="logo-mark" viewBox="0 0 256 256" aria-hidden="true"><path d="M44 38a14 14 0 0 1 14 14v152a14 14 0 0 1-28 0V52a14 14 0 0 1 14-14ZM86 104a14 14 0 0 1 14 14v86a14 14 0 0 1-28 0v-86a14 14 0 0 1 14-14ZM128 150a14 14 0 0 1 14 14v40a14 14 0 0 1-28 0v-40a14 14 0 0 1 14-14ZM170 104a14 14 0 0 1 14 14v86a14 14 0 0 1-28 0v-86a14 14 0 0 1 14-14ZM212 38a14 14 0 0 1 14 14v152a14 14 0 0 1-28 0V52a14 14 0 0 1 14-14Z"/></svg><span id="brandName">Murmur Notetaker</span></a>
+    <nav class="mode-switch" role="tablist" data-i18n-aria-label="mode.label">
+      <button role="tab" type="button" data-mode="notes" aria-selected="true"><i class="ph ph-notepad"></i><span data-i18n="mode.notes"></span></button>
+      <button role="tab" type="button" data-mode="copilot" aria-selected="false"><i class="ph ph-briefcase"></i><span data-i18n="mode.copilot"></span></button>
+    </nav>
+    <span class="topbar-hint" id="modeHint"></span>
+  </header>
+
+  <aside class="sidebar">
+    <div class="primary-actions notes-only">
+      <button class="btn btn-primary btn-block" id="recordBtn"></button>
+      <button class="icon-btn icon-btn-outline" id="importBtn" data-i18n-aria-label="nav.import" data-i18n-title="nav.importTitle"><i class="ph ph-upload-simple"></i></button>
+      <input type="file" id="importFile" accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.webm,.mp4,.mkv,.mov" hidden>
+    </div>
+
+    <label class="search notes-only">
+      <i class="ph ph-magnifying-glass"></i>
+      <input id="search" data-i18n-placeholder="nav.search" data-i18n-aria-label="nav.searchLabel">
+    </label>
+
+    <nav class="library notes-only" id="meetingList" data-i18n-aria-label="nav.meetings"></nav>
+
+    <!-- Murmur Copilot (interview mode) -->
+    <div class="copilot-only primary-actions">
+      <button class="btn btn-primary btn-block" id="newSessionBtn"></button>
+    </div>
+    <nav class="cp-nav copilot-only" data-i18n-aria-label="cp.navLabel">
+      <a href="#/copilot" data-cp-nav="sessions"><i class="ph ph-waveform"></i><span data-i18n="cp.sessions"></span></a>
+      <a href="#/copilot/resumes" data-cp-nav="resumes"><i class="ph ph-identification-card"></i><span data-i18n="cp.resumes"></span></a>
+      <a href="#/copilot/documents" data-cp-nav="documents"><i class="ph ph-files"></i><span data-i18n="cp.documents"></span></a>
+    </nav>
+    <nav class="library copilot-only" id="cpRecent" data-i18n-aria-label="cp.sessions"></nav>
+
+    <div class="resizer resizer-right" data-resize="sidebar" role="separator" aria-orientation="vertical" tabindex="0" data-i18n-title="layout.resize"></div>
+    <div class="sidebar-foot">
+      <a class="settings-link" id="settingsBtn" href="#/settings"><i class="ph ph-gear-six"></i><span data-i18n="nav.settings"></span></a>
+      <div class="engine" id="engineStatus" role="status"></div>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+
+    <!-- Shown while audio from a meeting plays and you are looking at something else -->
+    <div class="now-playing hidden" id="nowPlaying" role="region" data-i18n-aria-label="player.nowPlaying">
+      <button class="icon-btn icon-btn-solid" id="npPlay" data-i18n-aria-label="player.play"><i class="ph ph-pause"></i></button>
+      <a class="np-title" id="npTitle" href="#/" data-i18n-title="player.backToMeeting"></a>
+      <span class="mono muted" id="npTime">00:00</span>
+      <button class="speed" id="npSpeed" data-i18n-title="player.speed">1x</button>
+      <button class="icon-btn" id="npClose" data-i18n-aria-label="player.close"><i class="ph ph-x"></i></button>
+    </div>
+
+    <section class="view home" id="homeView">
+      <div class="home-inner">
+<svg class="logo-mark home-mark" viewBox="0 0 256 256" aria-hidden="true"><path d="M44 38a14 14 0 0 1 14 14v152a14 14 0 0 1-28 0V52a14 14 0 0 1 14-14ZM86 104a14 14 0 0 1 14 14v86a14 14 0 0 1-28 0v-86a14 14 0 0 1 14-14ZM128 150a14 14 0 0 1 14 14v40a14 14 0 0 1-28 0v-40a14 14 0 0 1 14-14ZM170 104a14 14 0 0 1 14 14v86a14 14 0 0 1-28 0v-86a14 14 0 0 1 14-14ZM212 38a14 14 0 0 1 14 14v152a14 14 0 0 1-28 0V52a14 14 0 0 1 14-14Z"/></svg>
+        <h1 data-i18n="home.title"></h1>
+        <p data-i18n="home.body"></p>
+        <div class="home-actions">
+          <button class="btn btn-primary" data-action="record"><i class="ph ph-record"></i><span data-i18n="nav.newRecording"></span></button>
+          <button class="btn btn-ghost" data-action="import"><i class="ph ph-upload-simple"></i><span data-i18n="nav.import"></span></button>
+        </div>
+        <p class="hint" data-i18n="home.hint"></p>
+      </div>
+    </section>
+
+    <section class="view live hidden" id="liveView">
+      <header class="live-head">
+        <div class="live-status"><span class="rec-dot" aria-hidden="true"></span><span id="liveTimer" class="mono">00:00</span></div>
+        <input class="title-input" id="liveTitle" data-i18n-aria-label="live.titleLabel">
+        <button class="btn btn-ghost" id="copyLiveBtn" data-i18n-title="copy.transcriptHint"><i class="ph ph-copy"></i><span data-i18n="copy.copy"></span></button>
+        <button class="btn btn-ghost" id="shareBtn"><i class="ph ph-monitor"></i><span data-i18n="live.shareScreen"></span></button>
+        <button class="btn btn-stop" id="stopBtn"><i class="ph ph-stop"></i><span data-i18n="live.stop"></span></button>
+      </header>
+      <div class="screen-preview hidden" id="screenPreview">
+        <video id="previewVideo" muted playsinline autoplay></video>
+        <span data-i18n="live.sharing"></span>
+      </div>
+      <div class="meters">
+        <div class="meter" id="micMeter">
+          <button class="mute-btn" id="muteMic" data-channel="mic" aria-pressed="false"></button>
+          <div class="meter-bar"><i id="micLevel"></i></div>
+        </div>
+        <div class="meter" id="sysMeter">
+          <button class="mute-btn" id="muteSys" data-channel="system" aria-pressed="false"></button>
+          <div class="meter-bar"><i id="sysLevel"></i></div>
+        </div>
+      </div>
+      <div class="live-body">
+        <div class="cp-left">
+          <section class="cp-screen hidden" id="cpScreen" data-i18n-aria-label="cp.screen">
+            <div class="cp-screen-bar">
+              <button class="btn btn-ghost btn-sm" id="cpShareBtn"></button>
+              <button class="btn btn-ghost btn-sm" id="cpChangeTab"><i class="ph ph-swap"></i><span data-i18n="cp.changeTab"></span></button>
+              <span class="spacer"></span>
+              <span class="cp-rec mono hidden" id="cpScreenRec"><span class="rec-dot"></span><span data-i18n="cp.screenRecording"></span></span>
+              <button class="icon-btn icon-sm" id="cpFullscreen" data-i18n-title="cp.fullscreen" data-i18n-aria-label="cp.fullscreen"><i class="ph ph-arrows-out"></i></button>
+            </div>
+            <div class="cp-screen-view">
+              <video id="cpScreenVideo" muted playsinline autoplay></video>
+              <div class="cp-screen-empty" id="cpScreenEmpty"><i class="ph ph-monitor"></i><span data-i18n="cp.screenHint"></span></div>
+            </div>
+          </section>
+          <div class="live-feed" id="liveFeed"></div>
+        </div>
+        <aside class="answer-panel hidden" id="answerPanel" data-i18n-aria-label="cp.aiAnswers">
+          <header class="ap-head">
+            <span class="ap-title"><i class="ph ph-sparkle"></i><span data-i18n="cp.aiAnswers"></span></span>
+            <span class="ap-model mono" id="apModel"></span>
+            <label class="switch" data-i18n-title="cp.autoHint"><input type="checkbox" id="apAuto"><i></i><span data-i18n="cp.auto"></span></label>
+          </header>
+          <div class="ap-list" id="apList"></div>
+          <form class="ap-ask" id="apAsk">
+            <button type="button" class="icon-btn icon-btn-outline" id="apAttach" aria-pressed="false" data-i18n-title="cp.attachShot" data-i18n-aria-label="cp.attachShot"><i class="ph ph-image-square"></i></button>
+            <input id="apInput" autocomplete="off" data-i18n-placeholder="cp.askPlaceholder">
+            <button class="btn btn-ghost" type="submit" data-i18n-title="cp.sendHint"><i class="ph ph-paper-plane-right"></i><span data-i18n="cp.send"></span></button>
+          </form>
+          <div class="ap-actions">
+            <button class="btn btn-primary" type="button" id="apAnswerBtn" data-i18n-title="cp.answerHint"><i class="ph ph-lightning"></i><span data-i18n="cp.answer"></span><kbd>Space</kbd></button>
+            <button class="btn btn-ghost" type="button" id="apShotBtn" data-i18n-title="cp.shotHint"><i class="ph ph-camera"></i><span data-i18n="cp.screenshot"></span></button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Murmur Copilot pages -->
+    <section class="view cp-page hidden" id="cpSessionsView">
+      <header class="cp-head">
+        <div><h1 data-i18n="cp.sessions"></h1><p data-i18n="cp.sessionsSub"></p></div>
+        <button class="btn btn-primary" data-action="new-session"><i class="ph ph-plus"></i><span data-i18n="cp.newSession"></span></button>
+      </header>
+      <div class="cp-toolbar">
+        <nav class="seg" id="cpFilter">
+          <button data-filter="all" data-i18n="cp.all"></button>
+          <button data-filter="interview"><i class="ph ph-briefcase"></i><span data-i18n="cp.typeInterview"></span></button>
+          <button data-filter="regular"><i class="ph ph-phone"></i><span data-i18n="cp.typeRegular"></span></button>
+        </nav>
+        <label class="search search-inline"><i class="ph ph-magnifying-glass"></i><input id="cpSearch" data-i18n-placeholder="cp.searchSessions"></label>
+        <span class="spacer"></span>
+        <span class="muted" id="cpCount"></span>
+      </div>
+      <div class="cp-scroll"><div class="cp-grid" id="cpSessions"></div></div>
+    </section>
+
+    <section class="view cp-page hidden" id="cpLibView">
+      <header class="cp-head">
+        <div><h1 id="cpLibTitle"></h1><p id="cpLibSub"></p></div>
+        <button class="btn btn-primary" id="cpAddBtn"><i class="ph ph-plus"></i><span id="cpAddLabel"></span></button>
+      </header>
+      <div class="cp-toolbar">
+        <label class="search search-inline"><i class="ph ph-magnifying-glass"></i><input id="cpLibSearch" data-i18n-placeholder="cp.searchLib"></label>
+        <span class="spacer"></span>
+        <span class="muted" id="cpLibCount"></span>
+      </div>
+      <div class="cp-scroll"><div class="cp-grid" id="cpLib"></div></div>
+      <input type="file" id="cpLibFile" accept=".pdf,.docx,.txt,.md" multiple hidden>
+    </section>
+
+    <section class="view meeting hidden" id="meetingView">
+      <!-- Right column (CSS order), full height: transcript, sentiment, speakers -->
+      <aside class="meeting-side">
+        <div class="resizer resizer-left" data-resize="side" role="separator" aria-orientation="vertical" tabindex="0" data-i18n-title="layout.resize"></div>
+        <nav class="tabs" id="tabs" role="tablist">
+          <button role="tab" data-tab="transcript" data-i18n="tab.transcript"></button>
+          <button role="tab" data-tab="sentiment" data-i18n="tab.sentiment"></button>
+          <button role="tab" data-tab="speakers" data-i18n="tab.speakers"></button>
+          <button role="tab" data-tab="answers" class="hidden" id="answersTab" data-i18n="tab.answers"></button>
+        </nav>
+        <div class="panels">
+          <section class="panel" data-panel="transcript">
+            <div class="transcript-tools">
+              <label class="search search-inline">
+                <i class="ph ph-magnifying-glass"></i>
+                <input id="tSearch" data-i18n-placeholder="transcript.search" data-i18n-aria-label="transcript.search">
+              </label>
+              <button class="chip hidden" id="filterChip"><span></span><i class="ph ph-x"></i></button>
+              <button class="btn btn-ghost btn-sm" id="copyTranscriptBtn" data-i18n-title="copy.transcriptHint"><i class="ph ph-copy"></i><span data-i18n="copy.copy"></span></button>
+            </div>
+            <div class="transcript" id="transcript"></div>
+          </section>
+          <section class="panel hidden" data-panel="sentiment" id="sentimentPanel"></section>
+          <section class="panel hidden" data-panel="answers" id="answersPanel"></section>
+          <section class="panel hidden" data-panel="speakers">
+              <div id="speakersList"></div>
+              <div class="rediarize">
+                <h3 data-i18n="spk.fixTitle"></h3>
+                <p data-i18n="spk.fixBody"></p>
+                <div class="row">
+                  <select id="numSpeakers" data-i18n-aria-label="spk.count"></select>
+                  <button class="btn btn-ghost" id="diarizeBtn"><i class="ph ph-arrow-counter-clockwise"></i><span data-i18n="spk.rediarize"></span></button>
+                </div>
+              </div>
+          </section>
+        </div>
+      </aside>
+
+      <!-- Middle column: title, screen recording, overview, player -->
+      <div class="meeting-main">
+      <header class="meeting-head">
+        <div class="meeting-title">
+          <input class="title-input" id="meetingTitle" data-i18n-aria-label="live.titleLabel" data-i18n-title="meeting.titleHint">
+          <p class="meta" id="meetingMeta"></p>
+        </div>
+        <div class="menu-wrap">
+          <button class="icon-btn" id="menuBtn" data-i18n-aria-label="meeting.more" aria-haspopup="true"><i class="ph ph-dots-three-vertical"></i></button>
+          <div class="menu hidden" id="menu" role="menu">
+            <a role="menuitem" id="exportTxt"><i class="ph ph-download-simple"></i><span data-i18n="menu.exportTxt"></span></a>
+            <a role="menuitem" id="exportSrt"><i class="ph ph-download-simple"></i><span data-i18n="menu.exportSrt"></span></a>
+            <a role="menuitem" id="exportMd"><i class="ph ph-download-simple"></i><span data-i18n="menu.exportMd"></span></a>
+            <hr>
+            <button role="menuitem" id="retranscribeBtn" data-i18n-title="menu.retranscribeHint"><i class="ph ph-arrows-clockwise"></i><span data-i18n="menu.retranscribe"></span></button>
+            <button role="menuitem" class="danger" id="deleteBtn"><i class="ph ph-trash"></i><span data-i18n="menu.delete"></span></button>
+          </div>
+        </div>
+      </header>
+
+      <div class="progress hidden" id="progress"><i id="progressBar"></i><span id="progressText"></span></div>
+
+      <section class="stage hidden" id="stage" data-i18n-aria-label="screen.label">
+        <video id="screenVideo" muted playsinline preload="auto"></video>
+        <div class="stage-empty" id="stageEmpty"><i class="ph ph-monitor"></i><span data-i18n="screen.none"></span></div>
+      </section>
+
+        <section class="overview-scroll">
+          <div class="overview" id="overviewPanel"></div>
+        </section>
+
+      <footer class="player hidden" id="player">
+        <button class="icon-btn icon-btn-solid" id="playBtn" data-i18n-aria-label="player.play"><i class="ph ph-play"></i></button>
+        <span class="mono" id="curTime">00:00</span>
+        <input type="range" id="seek" min="0" max="1000" value="0" data-i18n-aria-label="player.seek">
+        <span class="mono muted" id="durTime">00:00</span>
+        <button class="speed" id="speedBtn" data-i18n-title="player.speed">1x</button>
+      </footer>
+      </div>
+    </section>
+
+    <!-- Archive: its own page (#/archive) -->
+    <section class="view settings hidden" id="archiveView">
+      <header class="settings-head">
+        <a class="btn btn-ghost" href="#/settings"><i class="ph ph-arrow-left"></i><span data-i18n="settings.title"></span></a>
+        <h1 data-i18n="settings.archive"></h1>
+      </header>
+      <div class="settings-body">
+        <section class="settings-section">
+          <div class="archive-list" id="archiveList"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Settings: its own page (#/settings), not a modal -->
+    <section class="view settings hidden" id="settingsView">
+      <header class="settings-head">
+        <a class="btn btn-ghost" href="#/" id="settingsBack"><i class="ph ph-arrow-left"></i><span data-i18n="settings.back"></span></a>
+        <h1 data-i18n="settings.title"></h1>
+        <span class="save-state" id="saveState" role="status" aria-live="polite"></span>
+      </header>
+
+      <form class="settings-body" id="settingsForm">
+        <section class="settings-section" id="archiveSection">
+          <h2 data-i18n="settings.archive"></h2>
+          <p class="help" id="archiveCount"></p>
+          <div><a class="btn btn-ghost" href="#/archive"><i class="ph ph-archive"></i><span data-i18n="settings.viewArchive"></span></a></div>
+        </section>
+
+        <section class="settings-section">
+          <h2 data-i18n="settings.audio"></h2>
+          <div class="field">
+            <label for="setMic" data-i18n="settings.mic"></label>
+            <select id="setMic"></select>
+          </div>
+          <div class="field">
+            <label for="setSpeaker" data-i18n="settings.speaker"></label>
+            <select id="setSpeaker"></select>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h2 data-i18n="settings.recognition"></h2>
+          <div class="field">
+            <label for="setLang" data-i18n="settings.language"></label>
+            <select id="setLang">
+              <option value="auto" data-i18n="settings.langAuto"></option>
+              <option value="az" data-i18n="settings.langAz"></option>
+              <option value="de" data-i18n="settings.langDe"></option>
+              <option value="en" data-i18n="settings.langEn"></option>
+            </select>
+          </div>
+          <label class="check"><input type="checkbox" id="setRefine"><span data-i18n="settings.refine"></span></label>
+          <div class="field">
+            <label for="setVocabulary" data-i18n="settings.vocabulary"></label>
+            <input id="setVocabulary" type="text" autocomplete="off" spellcheck="false">
+            <p class="help" data-i18n="settings.vocabularyHelp"></p>
+          </div>
+          <div class="field">
+            <label for="setEngine" data-i18n="settings.engine"></label>
+            <select id="setEngine">
+              <option value="whisper" data-i18n="settings.engineWhisper"></option>
+              <option value="parakeet" data-i18n="settings.engineParakeet"></option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="setModel" data-i18n="settings.model"></label>
+            <select id="setModel">
+              <option value="large-v3-turbo" data-i18n="settings.modelTurbo"></option>
+              <option value="large-v3" data-i18n="settings.modelLarge"></option>
+              <option value="medium" data-i18n="settings.modelMedium"></option>
+              <option value="small" data-i18n="settings.modelSmall"></option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="setDevice" data-i18n="settings.device"></label>
+            <select id="setDevice">
+              <option value="auto" data-i18n="settings.deviceAuto"></option>
+              <option value="cpu" data-i18n="settings.deviceCpu"></option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="settings.models"></label>
+            <p class="help" data-i18n="settings.modelsHelp"></p>
+            <div class="model-list" id="modelList"></div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h2 data-i18n="settings.summary"></h2>
+          <p class="help" data-i18n="settings.summaryHelp"></p>
+          <div class="notice hidden" id="noKeys"><i class="ph ph-key"></i><span data-i18n="settings.noKeys"></span></div>
+          <div class="field">
+            <label for="setProvider" data-i18n="settings.provider"></label>
+            <select id="setProvider">
+              <option value="claude" data-i18n="settings.providerClaude"></option>
+              <option value="openai" data-i18n="settings.providerOpenai"></option>
+              <option value="nvidia" data-i18n="settings.providerNvidia"></option>
+            </select>
+          </div>
+          <div class="field hidden" id="modelField">
+            <label for="setModelPick" data-i18n="settings.providerModel"></label>
+            <div class="row-inline">
+              <select id="setModelPick"></select>
+              <button type="button" class="btn btn-ghost" id="testModelBtn"><i class="ph ph-plugs-connected"></i><span data-i18n="settings.testModel"></span></button>
+            </div>
+            <p class="help" id="modelHelp"></p>
+          </div>
+          <div class="field">
+            <label for="setSummaryLang" data-i18n="settings.summaryLanguage"></label>
+            <select id="setSummaryLang">
+              <option value="auto" data-i18n="settings.langMeeting"></option>
+              <option value="en" data-i18n="settings.langEn"></option>
+              <option value="az" data-i18n="settings.langAz"></option>
+              <option value="de" data-i18n="settings.langDe"></option>
+            </select>
+          </div>
+          <label class="check"><input type="checkbox" id="setAuto"><span data-i18n="settings.autoSummary"></span></label>
+        </section>
+
+        <section class="settings-section" id="apiKeys">
+          <h2 data-i18n="settings.apiKeys"></h2>
+          <p class="help" data-i18n="settings.apiKeysHelp"></p>
+
+          <div class="field">
+            <label for="setKey" data-i18n="settings.apiKey"></label>
+            <input id="setKey" type="text" class="mono" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+            <p class="help">
+              <a class="link" href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.apiKeyLink"></span><i class="ph ph-arrow-square-out"></i></a>
+              <span data-i18n="settings.apiKeySteps"></span>
+            </p>
+          </div>
+          <div class="field">
+            <label for="setWorkspace" data-i18n="settings.workspace"></label>
+            <input id="setWorkspace" type="text" class="mono" autocomplete="off" spellcheck="false" placeholder="wrkspc_...">
+            <p class="help" data-i18n="settings.workspaceHelp"></p>
+          </div>
+
+          <div class="field">
+            <label for="setOpenaiKey" data-i18n="settings.openaiKey"></label>
+            <input id="setOpenaiKey" type="text" class="mono" autocomplete="off" spellcheck="false" placeholder="sk-...">
+            <p class="help">
+              <a class="link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.openaiKeyLink"></span><i class="ph ph-arrow-square-out"></i></a>
+              <span data-i18n="settings.openaiKeySteps"></span>
+            </p>
+          </div>
+
+          <div class="field">
+            <label for="setNvidiaKey" data-i18n="settings.nvidiaKey"></label>
+            <input id="setNvidiaKey" type="text" class="mono" autocomplete="off" spellcheck="false" placeholder="nvapi-...">
+            <p class="help">
+              <a class="link" href="https://build.nvidia.com/settings/api-keys" target="_blank" rel="noopener noreferrer"><span data-i18n="settings.nvidiaKeyLink"></span><i class="ph ph-arrow-square-out"></i></a>
+              <span data-i18n="settings.nvidiaKeySteps"></span>
+            </p>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h2 data-i18n="settings.interface"></h2>
+          <div class="field">
+            <label for="setUiLang" data-i18n="settings.uiLanguage"></label>
+            <select id="setUiLang"></select>
+          </div>
+        </section>
+
+      </form>
+    </section>
+  </main>
+</div>
+
+<!-- Murmur Copilot dialogs -->
+<dialog class="modal modal-sm" id="addDialog">
+  <button class="icon-btn modal-x" data-close data-i18n-aria-label="cp.close"><i class="ph ph-x"></i></button>
+  <h2 id="addTitle"></h2>
+  <p class="help" id="addSub"></p>
+  <div class="add-choices">
+    <button class="btn btn-primary" data-add="upload"><i class="ph ph-upload-simple"></i><span data-i18n="cp.addUpload"></span></button>
+    <button class="btn btn-ghost" data-add="url" id="addUrlBtn"><i class="ph ph-globe"></i><span data-i18n="cp.addUrl"></span></button>
+    <button class="btn btn-ghost" data-add="manual"><i class="ph ph-pencil-simple"></i><span data-i18n="cp.addManual"></span></button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="editDialog">
+  <button class="icon-btn modal-x" data-close data-i18n-aria-label="cp.close"><i class="ph ph-x"></i></button>
+  <h2 id="editTitle"></h2>
+  <form id="editForm" class="modal-form">
+    <div class="field hidden" id="editUrlField">
+      <label for="editUrl" data-i18n="cp.url"></label>
+      <input id="editUrl" type="text" placeholder="https://">
+    </div>
+    <div class="field">
+      <label for="editName" data-i18n="cp.name"></label>
+      <input id="editName" type="text" autocomplete="off">
+    </div>
+    <div class="field" id="editTextField">
+      <label for="editText" data-i18n="cp.content"></label>
+      <textarea id="editText" rows="16"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" data-close data-i18n="cp.cancel"></button>
+      <button type="submit" class="btn btn-primary" id="editSave" data-i18n="cp.save"></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal modal-wide" id="sessionDialog">
+  <div class="wizard">
+    <aside class="wizard-side">
+      <h2 data-i18n="cp.createSession"></h2>
+      <p class="help" data-i18n="cp.createSub"></p>
+      <ol class="steps">
+        <li data-step="1"><span>1</span><b data-i18n="cp.stepDetails"></b></li>
+        <li data-step="2"><span>2</span><b data-i18n="cp.stepPrefs"></b></li>
+      </ol>
+    </aside>
+    <form class="wizard-main" id="sessionForm">
+      <button type="button" class="icon-btn modal-x" data-close data-i18n-aria-label="cp.close"><i class="ph ph-x"></i></button>
+
+      <div class="step" data-step="1">
+        <div class="field">
+          <label data-i18n="cp.sessionType"></label>
+          <div class="seg seg-full" id="sType">
+            <button type="button" data-type="interview"><i class="ph ph-briefcase"></i><span data-i18n="cp.typeInterview"></span></button>
+            <button type="button" data-type="regular"><i class="ph ph-phone"></i><span data-i18n="cp.typeRegular"></span></button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="sJobUrl" data-i18n="cp.jobLink"></label>
+          <div class="row-inline">
+            <input id="sJobUrl" type="text" placeholder="https://" autocomplete="off">
+            <button type="button" class="btn btn-ghost" id="sJobImport"><i class="ph ph-magic-wand"></i><span data-i18n="cp.import"></span></button>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="sCompany" data-i18n="cp.company"></label><input id="sCompany" type="text" autocomplete="off" data-i18n-placeholder="cp.companyPh"></div>
+          <div class="field"><label for="sRole" data-i18n="cp.role"></label><input id="sRole" type="text" autocomplete="off" data-i18n-placeholder="cp.rolePh"></div>
+        </div>
+        <div class="field">
+          <label for="sJd" data-i18n="cp.jobDescription"></label>
+          <textarea id="sJd" rows="6" data-i18n-placeholder="cp.jobDescriptionPh"></textarea>
+        </div>
+        <p class="eyebrow" data-i18n="cp.context"></p>
+        <div class="field-row">
+          <div class="field"><label for="sResume" data-i18n="cp.resume"></label><select id="sResume"></select></div>
+          <div class="field">
+            <label data-i18n="cp.documents"></label>
+            <details class="multi" id="sDocs"><summary id="sDocsLabel"></summary><div class="multi-list" id="sDocsList"></div></details>
+          </div>
+        </div>
+      </div>
+
+      <div class="step hidden" data-step="2">
+        <p class="eyebrow" data-i18n="cp.session"></p>
+        <div class="pref-row">
+          <div><b data-i18n="cp.language"></b><span data-i18n="cp.languageSub"></span></div>
+          <select id="sLang">
+            <option value="auto" data-i18n="cp.langAuto"></option>
+            <option value="en" data-i18n="settings.langEn"></option>
+            <option value="de" data-i18n="settings.langDe"></option>
+            <option value="az" data-i18n="settings.langAz"></option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div><b data-i18n="cp.model"></b><span data-i18n="cp.modelSub"></span></div>
+          <div class="row-inline"><select id="sProvider"></select><select id="sModel"></select></div>
+        </div>
+        <p class="eyebrow" data-i18n="cp.answerPrefs"></p>
+        <div class="pref-grid">
+          <div class="field"><label data-i18n="cp.format"></label>
+            <div class="seg seg-full seg-col" id="sFormat">
+              <button type="button" data-v="full"><b data-i18n="cp.fmtFull"></b><span data-i18n="cp.fmtFullSub"></span></button>
+              <button type="button" data-v="script_bullets"><b data-i18n="cp.fmtMixed"></b><span data-i18n="cp.fmtMixedSub"></span></button>
+              <button type="button" data-v="bullets"><b data-i18n="cp.fmtBullets"></b><span data-i18n="cp.fmtBulletsSub"></span></button>
+            </div>
+          </div>
+          <div class="field"><label data-i18n="cp.length"></label>
+            <div class="seg seg-full seg-col" id="sLength">
+              <button type="button" data-v="short"><b data-i18n="cp.lenShort"></b><span data-i18n="cp.lenShortSub"></span></button>
+              <button type="button" data-v="balanced"><b data-i18n="cp.lenBalanced"></b><span data-i18n="cp.lenBalancedSub"></span></button>
+              <button type="button" data-v="long"><b data-i18n="cp.lenLong"></b><span data-i18n="cp.lenLongSub"></span></button>
+            </div>
+          </div>
+        </div>
+        <div class="pref-row">
+          <div><b data-i18n="cp.tone"></b><span data-i18n="cp.toneSub"></span></div>
+          <div class="seg" id="sTone">
+            <button type="button" data-v="simple" data-i18n="cp.toneSimple"></button>
+            <button type="button" data-v="formal" data-i18n="cp.toneFormal"></button>
+          </div>
+        </div>
+        <label class="pref-row switch-row"><div><b data-i18n="cp.star"></b><span data-i18n="cp.starSub"></span></div><span class="switch"><input type="checkbox" id="sStar"><i></i></span></label>
+        <label class="pref-row switch-row"><div><b data-i18n="cp.fillers"></b><span data-i18n="cp.fillersSub"></span></div><span class="switch"><input type="checkbox" id="sFillers"><i></i></span></label>
+        <label class="pref-row switch-row"><div><b data-i18n="cp.autoGenerate"></b><span data-i18n="cp.autoGenerateSub"></span></div><span class="switch"><input type="checkbox" id="sAuto"><i></i></span></label>
+        <div class="field">
+          <div class="label-row"><label for="sInstructions" data-i18n="cp.instructions"></label><button type="button" class="link-btn" id="sResetInstr" data-i18n="cp.resetDefault"></button></div>
+          <textarea id="sInstructions" rows="7"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="sBack"></button>
+        <button type="submit" class="btn btn-primary" id="sNext"></button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<audio id="audio" preload="metadata"></audio>
+<div class="toast hidden" id="toast" role="status"></div>
+<script src="i18n/en.js"></script>
+<script src="app.js"></script>
+<script src="copilot.js"></script>
+</body>
+</html>

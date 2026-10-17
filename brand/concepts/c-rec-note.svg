@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- C: Rec + note. A note sheet (rx 24) with a circular bite (r 48) at the top-right corner;
+       the record dot (r 32) sits in the bite with a 16 px gap. Two lines are cut out as text. -->
+  <g transform="translate(-8 2)">
+    <path fill-rule="evenodd" d="M80 40 H149 A48 48 0 0 0 200 114.5 V192 A24 24 0 0 1 176 216 H80 A24 24 0 0 1 56 192 V64 A24 24 0 0 1 80 40 Z
+      M92 148 H164 A8 8 0 0 1 164 164 H92 A8 8 0 0 1 92 148 Z
+      M92 180 H132 A8 8 0 0 1 132 196 H92 A8 8 0 0 1 92 180 Z"/>
+    <circle cx="188" cy="68" r="32"/>
+  </g>
+</svg>

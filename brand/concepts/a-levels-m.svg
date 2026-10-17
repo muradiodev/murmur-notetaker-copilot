@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- A: Levels M. Five audio-level bars on a 28/14 grid; their tops trace the M silhouette
+       (two full stems, the V of the M as descending levels). Round caps r=14. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="88" width="28" height="130" rx="14"/>
+  <rect x="114" y="128" width="28" height="90" rx="14"/>
+  <rect x="156" y="88" width="28" height="130" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/>
+</svg>

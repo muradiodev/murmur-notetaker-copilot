@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>Murmur Notetaker</title>
+  <!-- small-size cut for 16-32 px: wider bars (34), tighter gaps (9), same M silhouette -->
+  <path fill="#3157d5" d="M42 30a17 17 0 0 1 17 17v162a17 17 0 0 1-34 0V47a17 17 0 0 1 17-17Z
+    M85 100a17 17 0 0 1 17 17v92a17 17 0 0 1-34 0v-92a17 17 0 0 1 17-17Z
+    M128 148a17 17 0 0 1 17 17v44a17 17 0 0 1-34 0v-44a17 17 0 0 1 17-17Z
+    M171 100a17 17 0 0 1 17 17v92a17 17 0 0 1-34 0v-92a17 17 0 0 1 17-17Z
+    M214 30a17 17 0 0 1 17 17v162a17 17 0 0 1-34 0V47a17 17 0 0 1 17-17Z"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 256">
+  <!-- exploration lockup: live <text> (Geist), to be converted to outlines for the final -->
+  <g>  <!-- B: Speech becomes a line. One 24 px stroke: an open speech bubble (r=68) whose tail drops
+       straight down and runs out as a written line. -->
+  <path d="M212 206 H86 V154.1 A68 68 0 1 1 151.6 171.7" fill="none" stroke="#000" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="290" y="168" font-family="Geist, 'Segoe UI', Arial, sans-serif" font-size="118" font-weight="650" letter-spacing="-3">Murmur Notetaker</text>
+</svg>

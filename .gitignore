@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Local models (gigabytes; downloaded by app/setup_models.py)
+models/
+
+# User data — contains API keys, meetings, the copilot library. NEVER commit.
+data/
+
+# Build / packaging output
+build/
+dist/
+*.spec.bak
+
+# ffmpeg binary (shipped separately)
+bin/ffmpeg.exe
+
+# Editors / OS
+.idea/
+.vscode/
+*.log
+Thumbs.db
+.DS_Store

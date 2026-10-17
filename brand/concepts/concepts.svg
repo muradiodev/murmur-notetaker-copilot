@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="984" viewBox="0 0 1600 984"><defs><filter id="grey"><feColorMatrix type="saturate" values="0"/></filter></defs><rect width="1600" height="984" fill="#f7f7f4"/><text x="60" y="78" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="40" font-weight="700" fill="#161616">Logo concepts</text><text x="60" y="116" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="20" fill="#6b6b6b">Concepts for review — pick a direction (or tell me what you like in each).</text><rect x="60" y="150" width="474.667" height="774" rx="18" fill="#fff" stroke="#161616" stroke-width="2"/><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="90" y="190" width="414.667" height="300" preserveAspectRatio="xMidYMid meet">
+  <!-- A v2: deeper V so the bars read as an M, not a bar chart. Tops 38 / 104 / 150 / 104 / 38. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="104" width="28" height="114" rx="14"/>
+  <rect x="114" y="150" width="28" height="68" rx="14"/>
+  <rect x="156" y="104" width="28" height="114" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 256" x="90" y="514" width="414.667" height="120" preserveAspectRatio="xMidYMid meet">
+  <!-- exploration lockup: live <text> (Geist), to be converted to outlines for the final -->
+  <g>  <!-- A v2: deeper V so the bars read as an M, not a bar chart. Tops 38 / 104 / 150 / 104 / 38. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="104" width="28" height="114" rx="14"/>
+  <rect x="114" y="150" width="28" height="68" rx="14"/>
+  <rect x="156" y="104" width="28" height="114" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/></g>
+  <text x="290" y="168" font-family="Geist, 'Segoe UI', Arial, sans-serif" font-size="118" font-weight="650" letter-spacing="-3">Murmur Notetaker</text>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="90" y="660" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <!-- A v2: deeper V so the bars read as an M, not a bar chart. Tops 38 / 104 / 150 / 104 / 38. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="104" width="28" height="114" rx="14"/>
+  <rect x="114" y="150" width="28" height="68" rx="14"/>
+  <rect x="156" y="104" width="28" height="114" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/>
+</svg>
+</g><text x="122" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="180" y="692" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <!-- A v2: deeper V so the bars read as an M, not a bar chart. Tops 38 / 104 / 150 / 104 / 38. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="104" width="28" height="114" rx="14"/>
+  <rect x="114" y="150" width="28" height="68" rx="14"/>
+  <rect x="156" y="104" width="28" height="114" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/>
+</svg>
+</g><text x="196" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="238" y="708" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <!-- A v2: deeper V so the bars read as an M, not a bar chart. Tops 38 / 104 / 150 / 104 / 38. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="104" width="28" height="114" rx="14"/>
+  <rect x="114" y="150" width="28" height="68" rx="14"/>
+  <rect x="156" y="104" width="28" height="114" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/>
+</svg>
+</g><text x="246" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="90.0" y="780" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" fill="#161616">A · A - Levels M</text><text x="90.0" y="808" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#161616" letter-spacing="1.5">RECOMMENDED</text><text x="90.0" y="842" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">Five audio-level bars whose tops draw an M:</text><text x="90.0" y="868" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">your voice becomes the letter.</text><rect x="562.667" y="150" width="474.667" height="774" rx="18" fill="#fff" stroke="#e4e4e0" stroke-width="1"/><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="592.667" y="190" width="414.667" height="300" preserveAspectRatio="xMidYMid meet">
+  <!-- B: Speech becomes a line. One 24 px stroke: an open speech bubble (r=68) whose tail drops
+       straight down and runs out as a written line. -->
+  <path d="M212 206 H86 V154.1 A68 68 0 1 1 151.6 171.7" fill="none" stroke="#000" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 256" x="592.667" y="514" width="414.667" height="120" preserveAspectRatio="xMidYMid meet">
+  <!-- exploration lockup: live <text> (Geist), to be converted to outlines for the final -->
+  <g>  <!-- B: Speech becomes a line. One 24 px stroke: an open speech bubble (r=68) whose tail drops
+       straight down and runs out as a written line. -->
+  <path d="M212 206 H86 V154.1 A68 68 0 1 1 151.6 171.7" fill="none" stroke="#000" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="290" y="168" font-family="Geist, 'Segoe UI', Arial, sans-serif" font-size="118" font-weight="650" letter-spacing="-3">Murmur Notetaker</text>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="592.667" y="660" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <!-- B: Speech becomes a line. One 24 px stroke: an open speech bubble (r=68) whose tail drops
+       straight down and runs out as a written line. -->
+  <path d="M212 206 H86 V154.1 A68 68 0 1 1 151.6 171.7" fill="none" stroke="#000" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+</g><text x="624.667" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="682.667" y="692" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <!-- B: Speech becomes a line. One 24 px stroke: an open speech bubble (r=68) whose tail drops
+       straight down and runs out as a written line. -->
+  <path d="M212 206 H86 V154.1 A68 68 0 1 1 151.6 171.7" fill="none" stroke="#000" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+</g><text x="698.667" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="740.667" y="708" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <!-- B: Speech becomes a line. One 24 px stroke: an open speech bubble (r=68) whose tail drops
+       straight down and runs out as a written line. -->
+  <path d="M212 206 H86 V154.1 A68 68 0 1 1 151.6 171.7" fill="none" stroke="#000" stroke-width="24"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+</g><text x="748.667" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="592.6666666666667" y="780" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" fill="#161616">B · B - Speech to line</text><text x="592.6666666666667" y="814" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">An open speech bubble whose tail runs out</text><text x="592.6666666666667" y="840" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">as a written line: speech becomes text.</text><rect x="1065.33" y="150" width="474.667" height="774" rx="18" fill="#fff" stroke="#e4e4e0" stroke-width="1"/><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1095.33" y="190" width="414.667" height="300" preserveAspectRatio="xMidYMid meet">
+  <!-- C: Rec + note. A note sheet (rx 24) with a circular bite (r 48) at the top-right corner;
+       the record dot (r 32) sits in the bite with a 16 px gap. Two lines are cut out as text. -->
+  <g transform="translate(-8 2)">
+    <path fill-rule="evenodd" d="M80 40 H149 A48 48 0 0 0 200 114.5 V192 A24 24 0 0 1 176 216 H80 A24 24 0 0 1 56 192 V64 A24 24 0 0 1 80 40 Z
+      M92 148 H164 A8 8 0 0 1 164 164 H92 A8 8 0 0 1 92 148 Z
+      M92 180 H132 A8 8 0 0 1 132 196 H92 A8 8 0 0 1 92 180 Z"/>
+    <circle cx="188" cy="68" r="32"/>
+  </g>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 256" x="1095.33" y="514" width="414.667" height="120" preserveAspectRatio="xMidYMid meet">
+  <!-- exploration lockup: live <text> (Geist), to be converted to outlines for the final -->
+  <g>  <!-- C: Rec + note. A note sheet (rx 24) with a circular bite (r 48) at the top-right corner;
+       the record dot (r 32) sits in the bite with a 16 px gap. Two lines are cut out as text. -->
+  <g transform="translate(-8 2)">
+    <path fill-rule="evenodd" d="M80 40 H149 A48 48 0 0 0 200 114.5 V192 A24 24 0 0 1 176 216 H80 A24 24 0 0 1 56 192 V64 A24 24 0 0 1 80 40 Z
+      M92 148 H164 A8 8 0 0 1 164 164 H92 A8 8 0 0 1 92 148 Z
+      M92 180 H132 A8 8 0 0 1 132 196 H92 A8 8 0 0 1 92 180 Z"/>
+    <circle cx="188" cy="68" r="32"/>
+  </g></g>
+  <text x="290" y="168" font-family="Geist, 'Segoe UI', Arial, sans-serif" font-size="118" font-weight="650" letter-spacing="-3">Murmur Notetaker</text>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1095.33" y="660" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <!-- C: Rec + note. A note sheet (rx 24) with a circular bite (r 48) at the top-right corner;
+       the record dot (r 32) sits in the bite with a 16 px gap. Two lines are cut out as text. -->
+  <g transform="translate(-8 2)">
+    <path fill-rule="evenodd" d="M80 40 H149 A48 48 0 0 0 200 114.5 V192 A24 24 0 0 1 176 216 H80 A24 24 0 0 1 56 192 V64 A24 24 0 0 1 80 40 Z
+      M92 148 H164 A8 8 0 0 1 164 164 H92 A8 8 0 0 1 92 148 Z
+      M92 180 H132 A8 8 0 0 1 132 196 H92 A8 8 0 0 1 92 180 Z"/>
+    <circle cx="188" cy="68" r="32"/>
+  </g>
+</svg>
+</g><text x="1127.33" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1185.33" y="692" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <!-- C: Rec + note. A note sheet (rx 24) with a circular bite (r 48) at the top-right corner;
+       the record dot (r 32) sits in the bite with a 16 px gap. Two lines are cut out as text. -->
+  <g transform="translate(-8 2)">
+    <path fill-rule="evenodd" d="M80 40 H149 A48 48 0 0 0 200 114.5 V192 A24 24 0 0 1 176 216 H80 A24 24 0 0 1 56 192 V64 A24 24 0 0 1 80 40 Z
+      M92 148 H164 A8 8 0 0 1 164 164 H92 A8 8 0 0 1 92 148 Z
+      M92 180 H132 A8 8 0 0 1 132 196 H92 A8 8 0 0 1 92 180 Z"/>
+    <circle cx="188" cy="68" r="32"/>
+  </g>
+</svg>
+</g><text x="1201.33" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" x="1243.33" y="708" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <!-- C: Rec + note. A note sheet (rx 24) with a circular bite (r 48) at the top-right corner;
+       the record dot (r 32) sits in the bite with a 16 px gap. Two lines are cut out as text. -->
+  <g transform="translate(-8 2)">
+    <path fill-rule="evenodd" d="M80 40 H149 A48 48 0 0 0 200 114.5 V192 A24 24 0 0 1 176 216 H80 A24 24 0 0 1 56 192 V64 A24 24 0 0 1 80 40 Z
+      M92 148 H164 A8 8 0 0 1 164 164 H92 A8 8 0 0 1 92 148 Z
+      M92 180 H132 A8 8 0 0 1 132 196 H92 A8 8 0 0 1 92 180 Z"/>
+    <circle cx="188" cy="68" r="32"/>
+  </g>
+</svg>
+</g><text x="1251.33" y="744" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="1095.3333333333335" y="780" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" fill="#161616">C · C - Rec + note</text><text x="1095.3333333333335" y="814" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">A note sheet with the record dot bitten</text><text x="1095.3333333333335" y="840" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">into its corner: record and note in one</text><text x="1095.3333333333335" y="866" font-family="system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif" font-size="19" fill="#555">sign.</text></svg>

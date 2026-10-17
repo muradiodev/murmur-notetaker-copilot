@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 256">
+  <!-- exploration lockup: live <text> (Geist), to be converted to outlines for the final -->
+  <g>  <!-- A v2: deeper V so the bars read as an M, not a bar chart. Tops 38 / 104 / 150 / 104 / 38. -->
+  <rect x="30" y="38" width="28" height="180" rx="14"/>
+  <rect x="72" y="104" width="28" height="114" rx="14"/>
+  <rect x="114" y="150" width="28" height="68" rx="14"/>
+  <rect x="156" y="104" width="28" height="114" rx="14"/>
+  <rect x="198" y="38" width="28" height="180" rx="14"/></g>
+  <text x="290" y="168" font-family="Geist, 'Segoe UI', Arial, sans-serif" font-size="118" font-weight="650" letter-spacing="-3">Murmur Notetaker</text>
+</svg>

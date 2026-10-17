@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><title>Murmur Notetaker</title><g transform="translate(-12.42 -12.42) scale(1.097)">
+  
+  <!-- Levels M: five audio-level bars (width 28, gap 14, round caps) whose tops draw an M. -->
+  <path fill="#3157d5" d="M44 38a14 14 0 0 1 14 14v152a14 14 0 0 1-28 0V52a14 14 0 0 1 14-14Z
+    M86 104a14 14 0 0 1 14 14v86a14 14 0 0 1-28 0v-86a14 14 0 0 1 14-14Z
+    M128 150a14 14 0 0 1 14 14v40a14 14 0 0 1-28 0v-40a14 14 0 0 1 14-14Z
+    M170 104a14 14 0 0 1 14 14v86a14 14 0 0 1-28 0v-86a14 14 0 0 1 14-14Z
+    M212 38a14 14 0 0 1 14 14v152a14 14 0 0 1-28 0V52a14 14 0 0 1 14-14Z"/>
+</g></svg>

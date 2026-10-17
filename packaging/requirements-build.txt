@@ -1,0 +1,5 @@
+# Extra tools needed only to build the Windows desktop app and installer.
+# (Runtime deps are in the top-level requirements.txt.)
+pyinstaller>=6.22
+pywebview>=6.2
+# Inno Setup is not a Python package — install it with:  winget install JRSoftware.InnoSetup
