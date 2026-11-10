@@ -162,6 +162,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .item.active:hover { background: var(--accent-soft); }
 .item-actions .icon-btn { width: 28px; height: 28px; font-size: 15px; background: var(--surface); border: 1px solid var(--line); }
 .item-actions .icon-btn.danger:hover, .item-actions .icon-btn.confirm { color: #fdfdfd; background: var(--neg); border-color: var(--neg); }
+.item-actions .icon-btn[data-rename-meeting]:hover { color: var(--on-accent, #fff); background: var(--accent); border-color: var(--accent); }
 .item.confirming .item-sub { color: var(--neg); }
 .group-toggle {
   display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: transparent; cursor: pointer;
@@ -171,6 +172,29 @@ body.resizing { cursor: col-resize; user-select: none; }
 .item.active { background: var(--accent-soft); }
 .item-title { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
 .item-sub { font-size: 12px; color: var(--text-3); }
+/* compact list: one line per meeting, "4 Nov 10:05  Title", duration on the right */
+.item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 13px; }
+.item-title { flex: 1; min-width: 0; font-weight: 500; }
+.item-stamp { flex: none; color: var(--text-3); font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 400; }
+.item-dur { flex: none; min-width: 44px; color: var(--text-3); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.item-dur:empty { display: none; }
+.item-name { overflow: hidden; text-overflow: ellipsis; }
+.ctx-menu {
+  position: fixed; z-index: 1000; min-width: 160px; padding: 4px; display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ctl); box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.ctx-menu button { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; border-radius: var(--r-ctl); }
+.ctx-menu button:hover { background: var(--accent); color: var(--on-accent, #fff); }
+.ctx-menu button:nth-child(2):hover { background: #e8b400; color: #1a1500; }
+.ctx-menu button:last-child:hover { background: var(--neg); color: #fff; }
+.rename-pop {
+  position: fixed; z-index: 1000; display: flex; gap: 6px; width: 290px; padding: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ctl); box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.rename-pop input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--surface-2); color: var(--text); font: inherit; }
+.rename-pop button { flex: none; padding: 6px 12px; border: 0; border-radius: var(--r-ctl); background: var(--accent); color: #fff; cursor: pointer; font: inherit; }
+.item-sub { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+.group-label { padding: 8px 8px 2px; }
 .item .rec-dot { width: 7px; height: 7px; }
 .library-empty { color: var(--text-3); padding: 8px; font-size: 13px; }
 
@@ -354,6 +378,17 @@ body.resizing { cursor: col-resize; user-select: none; }
 .turn .range:hover { color: var(--accent); }
 .turn .lang { font-size: 11px; color: var(--text-3); }
 .turn .text { margin: 0; max-width: 72ch; line-height: 1.7; font-size: 15px; }
+/* live / saved translation: original on the left, translation of the same turn on the right */
+.turn.with-tr { grid-template-columns: 12px minmax(0, 1fr) minmax(0, 1fr); column-gap: 18px; }
+.turn.with-tr .text { max-width: none; }
+.turn.with-tr2, .tr-cols.tr-cols2 { grid-template-columns: 12px minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.tr-cols.tr-cols2 span:nth-child(3) { padding-left: 16px; }
+.turn .tr { margin-top: 26px; padding-left: 16px; border-left: 1px solid var(--line); line-height: 1.7; font-size: 15px; color: var(--text-2); }
+.turn .tr .tr-wait { color: var(--text-3); }
+.tr-cols { display: grid; grid-template-columns: 12px minmax(0, 1fr) minmax(0, 1fr); column-gap: 18px; position: sticky; top: 0; z-index: 1;
+  background: var(--bg); padding: 4px 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--text-3); text-transform: uppercase; }
+.tr-cols span:last-child { padding-left: 16px; }
+#trBtn.on { color: var(--accent); background: var(--accent-soft); }
 .sent { border-radius: 4px; padding: 1px 0; transition: background .15s; }
 .seekable .sent { cursor: pointer; }
 .seekable .sent:hover { background: var(--surface-2); }

@@ -56,6 +56,9 @@ const state = {
   step: {},
   pendingDelete: false,
   engine: { state: "loading" },
+  translate: true,        // translation column next to the transcript (automatic)
+  translateTo: "en",
+  translateAlso: "",      // optional second translation column (e.g. "az")
 };
 
 // ------------------------------------------------------------------ helpers
@@ -191,7 +194,20 @@ function sentenceHtml(s, query, filter) {
   return `<span class="sent${hit}" data-id="${s.id}" data-start="${s.start}" data-end="${s.end}" data-seek="${s.start}">${highlight(s.text, query)}</span>`;
 }
 
-function turnHtml(m, turn, { query = "", filter = null, editable = false, live = false } = {}) {
+// Translation columns: [{field, lang}]. The first is translate_to, the optional second translate_also.
+function trCols(primary, also) {
+  const cols = primary ? [{ field: "translation", lang: primary }] : [];
+  if (also && also !== primary) cols.push({ field: "translation2", lang: also });
+  return cols;
+}
+
+function translationHtml(turn, col) {
+  return turn.segs.map((s) => s[col.field]
+    ? `<span class="tr-sent">${esc(s[col.field])}</span>`
+    : s.lang === col.lang ? "" : `<span class="tr-wait">\u2026</span>`).join(" ");
+}
+
+function turnHtml(m, turn, { query = "", filter = null, editable = false, live = false, cols = [] } = {}) {
   const langs = [...new Set(turn.segs.map((s) => LANG[s.lang] || s.lang).filter(Boolean))].join(" ");
   const name = esc(speakerName(m, turn.speaker));
   const who = editable
@@ -199,7 +215,7 @@ function turnHtml(m, turn, { query = "", filter = null, editable = false, live =
     : `<span class="who">${name}</span>`;
   const edit = editable
     ? `<button class="edit-turn" data-edit-turn title="${esc(t("transcript.renameHint"))}" aria-label="${esc(t("transcript.renameHint"))}"><i class="ph ph-pencil-simple"></i></button>` : "";
-  return `<article class="turn" style="--spk:${speakerColor(turn.speaker)}">
+  return `<article class="turn${trClass(cols)}" style="--spk:${speakerColor(turn.speaker)}">
     <div>
       <div class="turn-head">
         ${who}
@@ -210,7 +226,12 @@ function turnHtml(m, turn, { query = "", filter = null, editable = false, live =
       </div>
       <p class="text">${turn.segs.map((s) => sentenceHtml(s, query, filter)).join(" ")}</p>
     </div>
+    ${cols.map((c) => `<div class="tr" lang="${esc(c.lang)}">${translationHtml(turn, c)}</div>`).join("")}
   </article>`;
+}
+
+function trClass(cols) {
+  return cols.length === 2 ? " with-tr with-tr2" : cols.length ? " with-tr" : "";
 }
 
 // ------------------------------------------------------------------ copy
@@ -240,6 +261,15 @@ function transcriptAsText(m) {
 
 $("copyTranscriptBtn").addEventListener("click", () => state.current && copyText(transcriptAsText(state.current)));
 $("copyLiveBtn").addEventListener("click", () => state.current && copyText(transcriptAsText(state.current)));
+$("translateMeetingBtn").addEventListener("click", async () => {
+  if (!state.current) return;
+  try {
+    const res = await api(`/api/meetings/${state.current.id}/translate`, { method: "POST", body: { target: state.translateTo } });
+    state.current.translate_to = res.target;
+    state.current.translate_also = res.also;
+    toast(t("transcript.translating"));
+  } catch (err) { toast(err.message, true); }
+});
 
 // ------------------------------------------------------------------ routing
 // #/  home   ·   #/meeting/<id>   ·   #/settings
@@ -287,19 +317,20 @@ async function loadMeetings() {
 function itemHtml(m) {
   const active = state.current && state.current.id === m.id ? " active" : "";
   const status = m.status === "recording" ? `<span class="rec-dot" aria-label="${esc(t("list.recording"))}"></span>` : "";
-  const sub = m.status === "processing" ? t("list.processing") : `${hhmm(new Date(m.created_at))}, ${minutes(m.duration)}`;
+  const d = new Date(m.created_at);
+  const stamp = `${d.getDate()} ${String(t("months")[d.getMonth()]).slice(0, 3)} ${hhmm(d)}`;
+  const sub = m.status === "processing" ? t("list.processing") : minutes(m.duration);
   const busy = m.status !== "ready";
   const confirm = state.confirmDelete === m.id;
   const archiveKey = m.archived ? "list.unarchive" : "list.archive";
   const actions = busy ? "" : `<span class="item-actions">
-      <button class="icon-btn" data-archive="${m.id}" title="${esc(t(archiveKey))}" aria-label="${esc(t(archiveKey))}">
-        <i class="ph ${m.archived ? "ph-arrow-u-up-left" : "ph-archive"}"></i></button>
+      <button class="icon-btn" data-rename-meeting="${m.id}" title="Rename" aria-label="Rename"><i class="ph ph-pencil-simple"></i></button>
       <button class="icon-btn danger${confirm ? " confirm" : ""}" data-delete="${m.id}" title="${esc(t(confirm ? "list.deleteConfirm" : "list.delete"))}" aria-label="${esc(t("list.delete"))}">
         <i class="ph ${confirm ? "ph-check" : "ph-trash"}"></i></button>
     </span>`;
-  return `<a class="item${active}${confirm ? " confirming" : ""}" href="#/meeting/${encodeURIComponent(m.id)}">
-      <div class="item-title">${status}<span>${esc(m.title)}</span></div>
-      <div class="item-sub">${esc(confirm ? t("list.deleteConfirm") : sub)}</div>
+  return `<a class="item${active}${confirm ? " confirming" : ""}" data-id="${esc(m.id)}" data-busy="${busy ? 1 : 0}" href="#/meeting/${encodeURIComponent(m.id)}">
+      <div class="item-title" title="${esc(minutes(m.duration))}">${status}<span class="item-dur">${esc(m.status === "ready" ? minutes(m.duration) : "")}</span><span class="item-name">${esc(m.title)}</span></div>
+      <div class="item-sub">${esc(confirm ? t("list.deleteConfirm") : m.status === "processing" ? sub : stamp)}</div>
       ${actions}
     </a>`;
 }
@@ -326,10 +357,85 @@ function renderList() {
   $("meetingList").innerHTML = html || `<p class="library-empty">${esc(t(q ? "list.noMatch" : "list.empty"))}</p>`;
 }
 
+// Rename popup next to the pencil button of a meeting in the sidebar.
+function renameMeetingPopup(btn) {
+  document.querySelector(".rename-pop")?.remove();
+  const id = btn.dataset.renameMeeting;
+  const m = state.meetings.find((x) => x.id === id);
+  if (!m) return;
+  const pop = document.createElement("div");
+  pop.className = "rename-pop";
+  pop.innerHTML = `<input type="text" maxlength="200" aria-label="Rename"><button class="primary-btn" type="button">Save</button>`;
+  const r = btn.getBoundingClientRect();
+  pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - 60)}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.left - 120, window.innerWidth - 300))}px`;
+  document.body.appendChild(pop);
+  const input = pop.querySelector("input");
+  input.value = m.title;
+  input.focus(); input.select();
+  const close = () => { pop.remove(); document.removeEventListener("mousedown", away, true); };
+  const away = (ev) => { if (!pop.contains(ev.target)) close(); };
+  const save = async () => {
+    const value = input.value.trim();
+    close();
+    if (!value || value === m.title) return;
+    try {
+      const upd = await api(`/api/meetings/${id}`, { method: "PATCH", body: { title: value } });
+      if (state.current && state.current.id === id) {
+        state.current.title = upd.title;
+        for (const el of ["meetingTitle", "liveTitle"]) if ($(el)) $(el).value = upd.title;
+      }
+      await loadMeetings();
+    } catch (err) { toast(err.message, true); }
+  };
+  pop.querySelector("button").addEventListener("click", save);
+  input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") save(); else if (ev.key === "Escape") close(); });
+  setTimeout(() => document.addEventListener("mousedown", away, true), 0);
+}
+
+// Right-click on a meeting in the sidebar: Rename / Archive / Delete (same actions as the hover buttons).
+function closeCtx() { document.querySelector(".ctx-menu")?.remove(); }
+$("meetingList").addEventListener("contextmenu", (e) => {
+  const item = e.target.closest(".item[data-id]");
+  if (!item || item.dataset.busy === "1") return;
+  e.preventDefault();
+  closeCtx();
+  const id = item.dataset.id;
+  const m = state.meetings.find((x) => x.id === id);
+  if (!m) return;
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  const rows = [
+    ["ph-pencil-simple", "Rename", () => renameMeetingPopup({ dataset: { renameMeeting: id }, getBoundingClientRect: () => ({ bottom: e.clientY, left: e.clientX }) })],
+    [m.archived ? "ph-arrow-u-up-left" : "ph-archive", t(m.archived ? "list.unarchive" : "list.archive"), async () => {
+      try {
+        await api(`/api/meetings/${id}`, { method: "PATCH", body: { archived: !m.archived } });
+        toast(t(m.archived ? "list.unarchived" : "list.archivedToast"));
+        await loadMeetings();
+      } catch (err) { toast(err.message, true); }
+    }],
+    ["ph-trash", t("list.delete"), () => item.querySelector("[data-delete]")?.click()],
+  ];
+  for (const [icon, label, fn] of rows) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<i class="ph ${icon}"></i><span>${esc(label)}</span>`;
+    b.addEventListener("click", () => { closeCtx(); fn(); });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  menu.style.left = `${Math.min(e.clientX, window.innerWidth - 180)}px`;
+  menu.style.top = `${Math.min(e.clientY, window.innerHeight - 130)}px`;
+});
+document.addEventListener("mousedown", (e) => { if (!e.target.closest(".ctx-menu")) closeCtx(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeCtx(); });
+
 // Hover actions in the sidebar: archive / unarchive, and delete with a second click to confirm.
 $("meetingList").addEventListener("click", async (e) => {
   const toggle = e.target.closest("[data-toggle-archived]");
   if (toggle) { state.showArchived = !state.showArchived; return renderList(); }
+  const ren = e.target.closest("[data-rename-meeting]");
+  if (ren) { e.preventDefault(); e.stopPropagation(); return renameMeetingPopup(ren); }
   const arch = e.target.closest("[data-archive]");
   const del = e.target.closest("[data-delete]");
   if (!arch && !del) { state.confirmDelete = null; return; }
@@ -429,7 +535,10 @@ function renderProgress() {
   const diarizing = step === "diarizing" || step === "echo";
   box.classList.toggle("indeterminate", diarizing || p === undefined);
   $("progressBar").style.width = `${p || 0}%`;
-  $("progressText").textContent = diarizing ? t("progress.diarizing")
+  const queued = step === "queued";
+  box.classList.toggle("indeterminate", diarizing || queued || p === undefined);
+  $("progressText").textContent = queued ? t("progress.queued")
+    : diarizing ? t("progress.diarizing")
     : m.source ? t("progress.importing", { p: p || 0 })
     : step === "echo" ? t("progress.echo")
     : step === "refining" ? t("progress.refining", { p: p || 0 })
@@ -521,7 +630,10 @@ function renderTranscript() {
   box.classList.toggle("seekable", !!m.has_audio);
   const emptyKey = q || f ? "transcript.noMatch" : m.status === "processing" ? "transcript.preparing" : "transcript.empty";
   const editable = m.status === "ready";
-  box.innerHTML = turns.map((turn) => turnHtml(m, turn, { query: state.tQuery, filter: f, editable })).join("") ||
+  const cols = trCols(m.translate_to || state.translateTo, m.translate_also)
+    .filter((c) => m.segments.some((s) => s[c.field]));
+  box.innerHTML = (cols.length && turns.length ? translationHeader(cols) : "") +
+    turns.map((turn) => turnHtml(m, turn, { query: state.tQuery, filter: f, editable, cols })).join("") ||
     `<p class="muted">${esc(t(emptyKey))}</p>`;
   const chip = $("filterChip");
   chip.classList.toggle("hidden", !f);
@@ -1060,12 +1172,19 @@ function renderLive() {
   const feed = $("liveFeed");
   const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 120;
   const turns = turnsOf(sortedSegs(m), 4);   // live: a pause of more than 4 s starts a new line
+  const cols = state.translate ? trCols(state.translateTo, state.translateAlso) : [];
   const interim = Object.entries(state.interim)
-    .map(([ch, it]) => `<article class="turn interim" style="--spk:var(--text-3)"><div>
+    .map(([ch, it]) => `<article class="turn interim${trClass(cols)}" style="--spk:var(--text-3)"><div>
         <div class="turn-head"><span class="who">${esc(it.label || "")}</span><span class="range mono">${clock(it.start)}</span></div>
-        <p class="text">${esc(it.committed || "")} <span class="tentative">${esc(it.tentative ?? it.text)}</span></p></div></article>`).join("");
-  feed.innerHTML = (turns.map((turn) => turnHtml(m, turn, { live: true })).join("") + interim) || `<p class="waiting">${esc(t("live.waiting"))}</p>`;
+        <p class="text">${esc(it.committed || "")} <span class="tentative">${esc(it.tentative ?? it.text)}</span></p></div>${cols.map(() => `<div class="tr"><span class="tr-wait">\u2026</span></div>`).join("")}</article>`).join("");
+  const body = turns.map((turn) => turnHtml(m, turn, { live: true, cols })).join("") + interim;
+  feed.innerHTML = body ? (cols.length ? translationHeader(cols) : "") + body : `<p class="waiting">${esc(t("live.waiting"))}</p>`;
   if (nearBottom) feed.scrollTop = feed.scrollHeight;
+}
+
+function translationHeader(cols) {
+  return `<div class="tr-cols${cols.length === 2 ? " tr-cols2" : ""}"><span></span><span>${esc(t("live.original"))}</span>${
+    cols.map((c) => `<span>${esc(t("live.translation", { lang: c.lang.toUpperCase() }))}</span>`).join("")}</div>`;
 }
 
 async function startRecording() {
@@ -1219,8 +1338,13 @@ async function showSettings() {
     $("setDevice").value = s.device;
     $("setLang").value = s.language_mode;
     $("setSummaryLang").value = s.summary_language;
+    $("setTranslateTo").value = s.translate_to || "en";
+    $("setTranslateAlso").value = s.translate_also || "";
+    $("setTranslateLive").checked = s.translate_live !== false;
+    $("setTranslateEngine").value = s.translate_engine || "local";
     $("setAuto").checked = s.auto_summary;
     $("setRefine").checked = s.refine_after_recording !== false;
+    $("setPolish").checked = s.live_polish !== false;
     $("setVocabulary").value = s.vocabulary || "";
     settingsCache = s;
     $("setKey").value = s.anthropic_api_key || "";
@@ -1238,8 +1362,10 @@ async function showSettings() {
 const SETTING_FIELDS = {
   setMic: "mic_device", setSpeaker: "speaker_device", setEngine: "engine", setModel: "whisper_model",
   setDevice: "device", setLang: "language_mode", setSummaryLang: "summary_language",
-  setAuto: "auto_summary", setUiLang: "ui_language", setProvider: "summary_provider",
-  setRefine: "refine_after_recording", setVocabulary: "vocabulary",
+  setAuto: "auto_summary", setUiLang: "ui_language", setProvider: "summary_provider", setTranslateTo: "translate_to",
+  setTranslateAlso: "translate_also",
+  setTranslateLive: "translate_live", setTranslateEngine: "translate_engine",
+  setRefine: "refine_after_recording", setPolish: "live_polish", setVocabulary: "vocabulary",
   setKey: "anthropic_api_key", setWorkspace: "anthropic_workspace_id",
   setOpenaiKey: "openai_api_key", setNvidiaKey: "nvidia_api_key",
 };
@@ -1356,6 +1482,13 @@ async function saveSetting(field, value) {
   try {
     const s = await api("/api/settings", { method: "POST", body: { [field]: value } });
     settingsCache = s;
+    if (field === "translate_to") state.translateTo = s.translate_to || "en";
+    if (field === "translate_also") state.translateAlso = s.translate_also || "";
+    if ((field === "translate_to" || field === "translate_also") && state.current && state.current.status === "recording") renderLive();
+    if (field === "translate_live") {
+      state.translate = s.translate_live !== false;
+      if (state.current && state.current.status === "recording") renderLive();
+    }
     if (field === "ui_language" && value !== LANG_CODE) {
       await loadLanguage(value);
       applyI18n();
@@ -1468,6 +1601,24 @@ function handle(msg) {
         cur.speakers = msg.speakers;
         if (cur.status === "recording") renderLive(); else renderMeeting();
       }
+      break;
+    case "segment_update":
+      if (isCur) {
+        for (const u of msg.segments) {
+          const seg = cur.segments.find((x) => x.id === u.id);
+          if (seg) Object.assign(seg, u);
+        }
+        if (cur.status === "recording") renderLive(); else renderTranscript();
+      }
+      break;
+    case "translation":
+      if (isCur) {
+        for (const seg of cur.segments) if (msg.items[seg.id]) seg[msg.field || "translation"] = msg.items[seg.id];
+        if (cur.status === "recording") renderLive(); else renderTranscript();
+      }
+      break;
+    case "translation_error":
+      toast(t("toast.translationFailed", { message: msg.message }), true);
       break;
     case "segment_removed":
       if (isCur) {
@@ -1605,6 +1756,9 @@ restorePanelWidths();
 (async function boot() {
   const settings = await api("/api/settings").catch(() => ({}));
   await loadLanguage(settings.ui_language || "en");
+  state.translate = settings.translate_live !== false;
+  state.translateTo = settings.translate_to || "en";
+  state.translateAlso = settings.translate_also || "";
   applyI18n();
   renderRecordButton();
   renderSpeakerCountOptions();

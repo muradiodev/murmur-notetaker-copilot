@@ -3,6 +3,7 @@
 import json
 import shutil
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -50,17 +51,38 @@ def new_meeting(title: str = "") -> dict:
 
 
 _deleted: set[str] = set()
+_user_edits: dict[str, dict] = {}   # fields the user changed by hand (title, archived), per meeting
+
+
+def set_user_fields(meeting: dict, **fields) -> None:
+    """Remember a hand edit, so a background job that still holds an older copy of the meeting
+    (post-processing, live recording, summary) cannot write the old value back."""
+    with _lock:
+        _user_edits.setdefault(meeting["id"], {}).update(fields)
+    meeting.update(fields)
+
+
+def user_edited(meeting_id: str, field: str) -> bool:
+    return field in _user_edits.get(meeting_id, {})
 
 
 def save(meeting: dict, exports: bool = False) -> None:
     with _lock:
         if meeting["id"] in _deleted:
             return  # a background job (summary, transcription) finished after the meeting was deleted
+        meeting.update(_user_edits.get(meeting["id"], {}))
         folder = meeting_dir(meeting["id"])
         folder.mkdir(parents=True, exist_ok=True)
         tmp = folder / "meeting.json.tmp"
         tmp.write_text(json.dumps(meeting, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(folder / "meeting.json")
+        for attempt in range(20):   # Windows: a virus scanner or indexer can hold the file for a moment
+            try:
+                tmp.replace(folder / "meeting.json")
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.05)
         if exports:
             write_exports(meeting)
 

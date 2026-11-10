@@ -1,16 +1,16 @@
 """Speech-to-text engines and the single GPU worker that runs them."""
 
 import logging
-import queue
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
 
-from .config import PARAKEET_DIR, SAMPLE_RATE, WHISPER_DIR, add_nvidia_dll_dirs
+from .config import PARAKEET_DIR, SAMPLE_RATE, WHISPER_DIR, add_nvidia_dll_dirs, load_team_terms
 
 log = logging.getLogger(__name__)
 
@@ -22,12 +22,55 @@ HALLUCINATIONS = re.compile(
 )
 
 
+# Words the recognizer keeps mishearing. The team's own words come from data/team_terms.json. Whole words, case-insensitive. Ordinary words
+# that are only sometimes wrong ("Cloud" for "Claude", "Cash" for "Cache") are NOT here, they are handled
+# by the vocabulary hint in Settings instead.
+HEARD_AS = {
+    "koffein": "Caffeine",
+    "kaffein": "Caffeine",
+    "kaffeine": "Caffeine",
+    "koffein-cache": "Caffeine-Cache",
+    "intellijay": "IntelliJ",
+    "intelli-j": "IntelliJ",
+    "hafke": "Kafka",
+    "kafke": "Kafka",
+    "lock-pair": "Log-Pair",
+    "lockzeile": "Logzeile",
+    "login-framework": "Logging-Framework",
+    **load_team_terms().get("heard_as", {}),   # team words, data/team_terms.json
+}
+_TERM = re.compile(r"[\w\-]+", re.UNICODE)
+
+
+def collapse_loops(text: str) -> str:
+    """Whisper sometimes gets stuck inside a word: "Intententententent", "Routing-Routing-Routing-...",
+    "kafkafkafkafka". Each such run becomes one copy ("Intent", "Routing", "kafka")."""
+    def fix(match: re.Match) -> str:
+        parts = match.group(0).split("-")
+        out = [parts[0]]
+        for part in parts[1:]:
+            if part.lower() != out[-1].lower():
+                out.append(part)
+        return re.sub(r"(\w{2,8}?)\1{3,}", r"\1", "-".join(out))
+    return re.sub(r"\S+", fix, text)
+
+
+def fix_terms(text: str) -> str:
+    return _TERM.sub(lambda m: HEARD_AS.get(m.group(0).lower(), m.group(0)), text)
+
+
+def clean_text(text: str) -> str:
+    """Loops collapsed, team vocabulary fixed. Safe to run twice."""
+    return fix_terms(collapse_loops(text))
+
+
 # Meetily's clean_repetitive_text, ported: Whisper sometimes loops ("the the the", "I mean I mean").
 _REPEAT_PHRASES = ("thank you for watching", "thanks for watching", "like and subscribe", "music playing",
                    "applause", "laughter", "um um um", "uh uh uh", "ah ah ah")
 
 
 def clean_repetitive_text(text: str) -> str:
+    text = collapse_loops(text)
     low = text.lower()
     if any(p in low for p in _REPEAT_PHRASES):
         return ""
@@ -120,12 +163,12 @@ class WhisperEngine:
         )
         pieces = []
         for s in segments:
-            text = clean_repetitive_text(s.text.strip())
+            text = fix_terms(clean_repetitive_text(s.text.strip()))
             if not text or s.no_speech_prob > 0.6 or s.avg_logprob < -1.2 or HALLUCINATIONS.match(text):
                 continue
             if s.words and len(s.words) <= 3 and sum(w.probability for w in s.words) / len(s.words) < 0.45:
                 continue  # a few low-confidence words on noise: typical Whisper hallucination
-            words = [(w.start, w.end, w.word.strip()) for w in (s.words or []) if w.word.strip()]
+            words = [(w.start, w.end, clean_text(w.word.strip())) for w in (s.words or []) if w.word.strip()]
             pieces.append(Piece(s.start, s.end, text, language or info.language, words, s.avg_logprob, s.no_speech_prob))
         return pieces
 
@@ -146,7 +189,7 @@ class ParakeetEngine:
 
     def transcribe(self, audio: np.ndarray, language: str | None, quality: bool = False, fast: bool = False,
                    hotwords: str | None = None) -> list[Piece]:
-        text = clean_repetitive_text(str(self.model.recognize(audio, sample_rate=SAMPLE_RATE)).strip())
+        text = fix_terms(clean_repetitive_text(str(self.model.recognize(audio, sample_rate=SAMPLE_RATE)).strip()))
         if not text:
             return []
         return [Piece(0.0, len(audio) / SAMPLE_RATE, text, None)]
@@ -159,10 +202,18 @@ class Job:
     audio: np.ndarray
     callback: Callable[[str, float, list[Piece]], None]
     context: dict = field(default_factory=dict)
+    group: str = ""            # the meeting this job belongs to: wait_group() waits for exactly these jobs
 
 
 class EngineManager:
-    """Owns the loaded model and processes jobs one at a time on a worker thread."""
+    """Owns the loaded model and processes jobs one at a time on a worker thread.
+
+    Two lanes share the one GPU worker. The LIVE lane (the sentence being spoken right now in a
+    recording) always goes first. The BATCH lane (refine after a meeting, "transcribe again", file
+    import) only runs when the live lane is empty AND no recording is running (`batch_paused`).
+    An old meeting that is still being processed can therefore never starve a new recording; its
+    work simply continues, in order, after the recording ends.
+    """
 
     def __init__(self, on_status: Callable[[dict], None]):
         self.on_status = on_status
@@ -170,18 +221,27 @@ class EngineManager:
         self.state = "idle"
         self.error = ""
         self.settings: dict = {}
-        self.jobs: "queue.Queue[Job]" = queue.Queue()
         self.last_lang: dict[str, str] = {}
         self._load_lock = threading.Lock()
+        self._cv = threading.Condition()
+        self._live: "deque[Job]" = deque()
+        self._batch: "deque[Job]" = deque()
+        self._running: Job | None = None
+        self._pending: dict[str, int] = {}     # group -> jobs queued or running
+        self._batch_paused = False
         threading.Thread(target=self._worker, daemon=True, name="stt-worker").start()
 
     def status(self) -> dict:
+        with self._cv:
+            queued = len(self._live) + len(self._batch)
+            paused = self._batch_paused and bool(self._batch)
         return {
             "state": self.state,
             "error": self.error,
             "engine": getattr(self.engine, "name", None),
             "device": getattr(self.engine, "device", None),
-            "queue": self.jobs.qsize(),
+            "queue": queued,
+            "paused": paused,
         }
 
     def load_async(self, settings: dict) -> None:
@@ -206,10 +266,28 @@ class EngineManager:
 
     def submit(self, job: Job) -> None:
         job.context.setdefault("t_submit", time.monotonic())
-        self.jobs.put(job)
+        with self._cv:
+            (self._batch if job.context.get("batch") else self._live).append(job)
+            self._pending[job.group] = self._pending.get(job.group, 0) + 1
+            self._cv.notify_all()
 
-    def wait_idle(self) -> None:
-        self.jobs.join()
+    def set_batch_paused(self, paused: bool) -> None:
+        """True while a recording runs: batch jobs wait (the one already running finishes first)."""
+        with self._cv:
+            self._batch_paused = paused
+            self._cv.notify_all()
+        self.on_status(self.status())
+
+    def wait_group(self, group: str) -> None:
+        """Block until every job submitted for this meeting has finished (other meetings do not matter)."""
+        with self._cv:
+            while self._pending.get(group, 0) > 0:
+                self._cv.wait(timeout=1.0)
+
+    def idle(self) -> bool:
+        """Nothing live left to do: only then are interim (still being spoken) captions worth computing."""
+        with self._cv:
+            return not self._live and (self._running is None or bool(self._running.context.get("batch")))
 
     def _language_for(self, job: Job) -> str | None:
         mode = job.context.get("language") or self.settings.get("language_mode", "auto")
@@ -227,18 +305,34 @@ class EngineManager:
             self.last_lang[key] = lang
         return lang
 
+    def _next(self) -> Job:
+        with self._cv:
+            while True:
+                if self._live:
+                    job = self._live.popleft()
+                elif self._batch and not self._batch_paused:
+                    job = self._batch.popleft()
+                else:
+                    self._cv.wait()
+                    continue
+                self._running = job
+                return job
+
     def _worker(self) -> None:
         while True:
-            job = self.jobs.get()
+            job = self._next()
             try:
                 while self.engine is None and self.state in ("idle", "loading"):
                     threading.Event().wait(0.5)
                 if self.engine is None:
                     continue
                 interim = job.context.get("interim", False)
-                if interim and any(not j.context.get("interim") for j in list(self.jobs.queue)):
-                    job.callback(job.channel, job.offset, [])   # a finished sentence waits: it goes first
-                    continue
+                if interim:
+                    with self._cv:
+                        final_waiting = any(not j.context.get("interim") for j in self._live)
+                    if final_waiting:
+                        job.callback(job.channel, job.offset, [])   # a finished sentence waits: it goes first
+                        continue
                 t_start = time.monotonic()
                 pieces = self.engine.transcribe(job.audio, self._language_for(job),
                                                 job.context.get("quality", False),
@@ -256,7 +350,14 @@ class EngineManager:
                 except Exception:
                     pass
             finally:
-                self.jobs.task_done()
+                with self._cv:
+                    self._running = None
+                    left = self._pending.get(job.group, 1) - 1
+                    if left > 0:
+                        self._pending[job.group] = left
+                    else:
+                        self._pending.pop(job.group, None)
+                    self._cv.notify_all()
                 if not job.context.get("interim"):
                     self.on_status(self.status())
 
@@ -270,6 +371,3 @@ class EngineManager:
                 seen.add(w.lower())
                 out.append(w)
         return ", ".join(out[:60])
-
-    def idle(self) -> bool:
-        return self.jobs.unfinished_tasks == 0

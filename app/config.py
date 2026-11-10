@@ -33,10 +33,22 @@ if os.environ.get("MURMUR_DATA"):
 FFMPEG = BIN_DIR / "ffmpeg.exe"
 MEETINGS_DIR = DATA_DIR / "meetings"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+TEAM_TERMS_FILE = DATA_DIR / "team_terms.json"
+
+
+def load_team_terms() -> dict:
+    """Private, team-specific vocabulary (kept in data/, never committed):
+    {"heard_as": {misheard: right}, "glossary": {German: English}, "polish_context": "The team builds ..."}"""
+    try:
+        data = json.loads(TEAM_TERMS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 WHISPER_DIR = MODELS_DIR / "faster-whisper"
 PARAKEET_DIR = MODELS_DIR / "parakeet-tdt-0.6b-v3-onnx"
 DIARIZATION_DIR = MODELS_DIR / "diarization"
+NLLB_DIR = MODELS_DIR / "nllb-200-distilled-1.3B-ct2-int8"   # local translation (German -> English ...)
 SILERO_VAD = MODELS_DIR / "silero_vad.onnx"
 
 SAMPLE_RATE = 16000      # speech recognition and diarization
@@ -65,13 +77,23 @@ DEFAULTS = {
     "nvidia_model": "",
     # "auto" writes the summary in the language most of the meeting was spoken in
     "summary_language": "auto",
-    "auto_summary": True,
+    "auto_summary": False,
     # After a live recording, transcribe the saved audio again with slower, more accurate settings.
     "refine_after_recording": True,
+    # While recording: every sentence appears at once, then the AI provider checks it a moment later (with the lines
+    # before it as context) and fixes misheard terms and names in place, like the summary does after the meeting.
+    "live_polish": True,
     "copilot_defaults": {},     # Murmur Copilot: last used session preferences (language, model, answer style, instructions)
     # Names, companies, products, jargon: recognition prefers these spellings (comma separated)
     "vocabulary": "",
     "ui_language": "en",
+    # Translation next to the transcript, automatic: every sentence that is not in `translate_to` gets one.
+    # "local" = NLLB model on this machine (nothing is sent anywhere), "ai" = your AI provider (text only)
+    "translate_live": True,
+    "translate_to": "en",
+    "translate_also": "",          # optional second translation column, e.g. "az" next to "en"
+    "translate_engine": "local",
+    "translate_glossary": "",      # extra terms: "Termin=appointment, Rechnung=invoice" (team terms can also go in data/team_terms.json)
 }
 
 _lock = threading.Lock()

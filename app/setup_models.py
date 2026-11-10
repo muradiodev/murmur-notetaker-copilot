@@ -4,7 +4,7 @@ import sys
 import tarfile
 import urllib.request
 
-from .config import DIARIZATION_DIR, PARAKEET_DIR, SILERO_VAD, WHISPER_DIR, load_settings
+from .config import DIARIZATION_DIR, NLLB_DIR, PARAKEET_DIR, SILERO_VAD, WHISPER_DIR, load_settings
 
 SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
 # Parakeet TDT 0.6B v3 (ONNX, by istupakov). We only pull the int8 files — the fp32 weights add a
@@ -58,6 +58,24 @@ def parakeet() -> None:
     print("✓ Parakeet")
 
 
+NLLB_REPO = "OpenNMT/nllb-200-distilled-1.3B-ct2-int8"     # CC-BY-NC 4.0 weights: non-commercial use
+
+
+def nllb_present() -> bool:
+    return (NLLB_DIR / "model.bin").exists() and (NLLB_DIR / "tokenizer.json").exists()
+
+
+def nllb() -> None:
+    from huggingface_hub import snapshot_download
+
+    if nllb_present():
+        print("✓ Translation model already present")
+        return
+    print("Downloading the translation model NLLB-200 1.3B int8 (~1.4 GB)…")
+    snapshot_download(NLLB_REPO, local_dir=str(NLLB_DIR))
+    print("✓ Translation model")
+
+
 def diarization() -> None:
     DIARIZATION_DIR.mkdir(parents=True, exist_ok=True)
     seg_dir = DIARIZATION_DIR / "sherpa-onnx-pyannote-segmentation-3-0"
@@ -79,11 +97,13 @@ def diarization() -> None:
 if __name__ == "__main__":
     settings = load_settings()
     models = sys.argv[1:] or [settings["whisper_model"]]
-    for name in models:
+    for name in [m for m in models if m != "nllb"]:
         whisper(name)
     if settings.get("engine") == "parakeet" or "parakeet" in models:
         parakeet()
     diarization()
+    if settings.get("translate_live") or "nllb" in models:
+        nllb()
     if not SILERO_VAD.exists():
         print("Downloading Silero VAD…")
         fetch(SILERO_URL, SILERO_VAD)

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import queue
 import re
 import shutil
@@ -20,7 +21,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import aec, copilot, diarize, dtln, names, setup_models, storage, summary
+from . import aec, copilot, diarize, dtln, localmt, names, polish, setup_models, storage, summary, translate
 from .audio import Capture, list_devices, make_segmenter
 import soxr
 
@@ -69,6 +70,160 @@ class Hub:
 
 hub = Hub()
 engine = EngineManager(on_status=lambda s: hub.send({"type": "engine", **s}))
+
+
+class PostQueue:
+    """Everything that happens to a meeting AFTER it was recorded (clean-up, refine, speaker separation,
+    file import, "transcribe again", crash recovery) runs here: one meeting at a time, in order.
+
+    While a recording is running the queue waits (and the engine pauses its batch lane), so a new live
+    meeting always has the machine to itself. When the recording ends, the waiting meetings continue
+    one after the other. Long jobs call `checkpoint()` between their steps to honour the pause.
+    """
+
+    def __init__(self):
+        self._q: "queue.Queue[tuple[str, object]]" = queue.Queue()
+        self._free = threading.Event()      # set = no recording is running
+        self._free.set()
+        self._busy = False
+        threading.Thread(target=self._run, daemon=True, name="post-processing").start()
+
+    def recording(self, active: bool) -> None:
+        (self._free.clear if active else self._free.set)()
+        engine.set_batch_paused(active)
+
+    def submit(self, meeting_id: str, fn) -> None:
+        waiting = not self._free.is_set() or self._busy or not self._q.empty()
+        self._q.put((meeting_id, fn))
+        if waiting:
+            hub.send({"type": "meeting", "meeting_id": meeting_id, "status": "processing", "step": "queued"})
+
+    def checkpoint(self, meeting_id: str) -> None:
+        """Block while a recording runs; the meeting shows "waiting" and then carries on by itself."""
+        if self._free.is_set():
+            return
+        hub.send({"type": "meeting", "meeting_id": meeting_id, "status": "processing", "step": "queued"})
+        self._free.wait()
+        hub.send({"type": "meeting", "meeting_id": meeting_id, "status": "processing", "step": "finishing"})
+
+    def _run(self) -> None:
+        while True:
+            meeting_id, fn = self._q.get()
+            self._busy = True
+            try:
+                self.checkpoint(meeting_id)
+                fn()
+            except Exception:
+                log.exception("Post-processing of %s failed", meeting_id)
+            finally:
+                self._busy = False
+                self._q.task_done()
+
+
+postq = PostQueue()
+
+
+def translation_targets(primary: str, also: str) -> list[tuple[str, str]]:
+    """[(language, segment field)]: the main translation column and the optional second one."""
+    out = [(primary, "translation")] if primary else []
+    if also and also != primary:
+        out.append((also, "translation2"))
+    return out
+
+
+def _translation_field(meeting: dict, target: str | None) -> str:
+    also = meeting.get("translate_also")
+    if target and also and target == also and target != meeting.get("translate_to"):
+        return "translation2"
+    return "translation"
+
+
+_translations_lock = threading.Lock()
+
+
+def apply_translations(meeting_id: str, items: dict[str, str], target: str | None = None) -> None:
+    """Store translated lines on their segments (live meeting or saved one) and tell the browser."""
+    live = session
+    if live and live.meeting["id"] == meeting_id:
+        with live.lock:
+            field = _translation_field(live.meeting, target)
+            for seg in live.meeting["segments"]:
+                if seg["id"] in items:
+                    seg[field] = items[seg["id"]]
+            storage.save(live.meeting)
+    else:
+        with _translations_lock:          # both columns of one meeting must not overwrite each other
+            meeting = storage.load(meeting_id)
+            if not meeting:
+                return
+            field = _translation_field(meeting, target)
+            for seg in meeting["segments"]:
+                if seg["id"] in items:
+                    seg[field] = items[seg["id"]]
+            storage.save(meeting)
+    hub.send({"type": "translation", "meeting_id": meeting_id, "items": items, "field": field})
+
+
+translator = translate.LiveTranslator(
+    load_settings, apply_translations,
+    lambda message: hub.send({"type": "translation_error", "message": message}))
+
+
+def apply_edits(meeting_id: str, items: dict[str, str]) -> None:
+    """The AI line editor fixed some live lines: replace them in place. The wording that was heard stays
+    in raw_text (hover to see it), the same way the summary's corrections after the meeting are shown."""
+    live = session
+    if not live or live.meeting["id"] != meeting_id:
+        return
+    changed = []
+    with live.lock:
+        for seg in live.meeting["segments"]:
+            new = items.get(seg["id"])
+            if new and new != seg["text"]:
+                seg.setdefault("raw_text", seg["text"])
+                seg["text"], seg["corrected"] = new, True
+                changed.append({"id": seg["id"], "text": new, "raw_text": seg["raw_text"], "corrected": True})
+        if changed:
+            storage.save(live.meeting)
+    if not changed:
+        return
+    hub.send({"type": "segment_update", "meeting_id": meeting_id, "segments": changed})
+    cfg = load_settings()                                      # the translation follows the corrected text
+    if cfg.get("translate_live"):
+        by_id = {s["id"]: s for s in live.meeting["segments"]}
+        targets = translation_targets(live.meeting.get("translate_to") or cfg.get("translate_to", "en"),
+                                      live.meeting.get("translate_also", ""))
+        for c in changed:
+            lang = by_id.get(c["id"], {}).get("lang")
+            for target, _ in targets:
+                if lang != target:
+                    translator.submit(meeting_id, c["id"], c["text"], target, lang)
+
+
+editor = polish.LineEditor(load_settings, apply_edits)
+
+
+def start_translation(meeting_id: str, target: str | None = None) -> None:
+    """Translate every line of a saved meeting that has no translation yet (after refine, or on demand).
+    Without an explicit target both columns are filled: translate_to and translate_also."""
+    def work():
+        meeting = storage.load(meeting_id)
+        if not meeting or not meeting["segments"]:
+            return
+        settings = load_settings()
+        tgt = target or meeting.get("translate_to") or settings.get("translate_to", "az")
+        targets = [(tgt, "translation")] if target else translation_targets(tgt, meeting.get("translate_also", ""))
+        hub.send({"type": "translation_state", "meeting_id": meeting_id, "state": "running"})
+        try:
+            for lang, field in targets:
+                translate.translate_segments(settings, meeting["segments"], lang, field=field,
+                                             progress=lambda got, lang=lang: apply_translations(meeting_id, got, lang))
+        except Exception as exc:
+            log.warning("Translation of %s failed: %s", meeting_id, exc)
+            hub.send({"type": "translation_error", "message": str(exc)})
+        hub.send({"type": "translation_state", "meeting_id": meeting_id, "state": "done"})
+
+    threading.Thread(target=work, daemon=True, name="translate-meeting").start()
 
 
 # ---------------------------------------------------------------- recognition model downloads
@@ -398,7 +553,7 @@ class Session:
         engine.submit(Job(channel, offset, audio,
                           lambda ch, off, pieces: self._on_pieces(ch, off, pieces, audio),
                           context={"names": known_names(self.meeting), "language": self.language,
-                                   "fast": self.copilot is not None}))
+                                   "fast": self.copilot is not None}, group=self.meeting["id"]))
 
     def _on_pieces(self, channel: str, offset: float, pieces, audio=None) -> None:
         if channel == "system" and audio is not None:
@@ -469,6 +624,31 @@ class Session:
         self.agreement.pop(channel, None)
         for seg in kept:
             hub.send({"type": "segment", "meeting_id": mid, "segment": seg})
+        self._translate(kept)
+        self._polish(channel, offset, audio, kept)
+
+    def _translate(self, segs: list[dict]) -> None:
+        """Automatic translation: every new line that is not in the target language goes to the translator.
+        Settings are read every time, so changes apply mid-meeting."""
+        cfg = load_settings()
+        if not cfg.get("translate_live"):
+            return
+        target = cfg.get("translate_to", "en")
+        also = cfg.get("translate_also", "")
+        mid = self.meeting["id"]
+        self.meeting["translate_to"] = target      # saved with the meeting: refine re-translates afterwards
+        self.meeting["translate_also"] = also if also != target else ""
+        for seg in segs:
+            for lang, _ in translation_targets(target, also):
+                if seg.get("lang") != lang:
+                    translator.submit(mid, seg["id"], seg["text"], lang, seg.get("lang"))
+
+    def _polish(self, channel: str, offset: float, audio, segs: list[dict]) -> None:
+        """Hand every new line to the AI line editor (see `live_polish`, polish.py)."""
+        if self.copilot or not load_settings().get("live_polish", True):
+            return
+        for seg in segs:
+            editor.submit(self.meeting["id"], seg["id"], seg["text"])
 
     def _rediarize_loop(self) -> None:
         """Run the same full diarization as after the meeting on everything recorded so far, and
@@ -551,7 +731,8 @@ class Session:
                 start, audio = pending
                 self.interim_busy[ch] = True
                 engine.submit(Job(ch, start, audio[-SAMPLE_RATE * 15:] if len(audio) > SAMPLE_RATE * 15 else audio,
-                                  self._on_interim, context={"interim": True, "language": self.language}))
+                                  self._on_interim, context={"interim": True, "language": self.language},
+                                  group=self.meeting["id"]))
 
     def _on_interim(self, channel: str, offset: float, pieces) -> None:
         self.interim_busy[channel] = False
@@ -626,19 +807,26 @@ class Session:
     def _finish(self) -> None:
         mid = self.meeting["id"]
         hub.send({"type": "meeting", "meeting_id": mid, "status": "processing", "step": "transcribing"})
-        engine.wait_idle()
+        engine.wait_group(mid)             # this meeting's last live sentences (not other meetings' work)
         with self.lock:
             self.closed = True
             for w in [*self.writers.values(), *self.hq_writers.values()]:
                 w.close()
             remove_echo(self.meeting["segments"])
+        postq.submit(mid, self._post_process)   # waits its turn, and while another recording runs
+
+    def _post_process(self) -> None:
+        mid = self.meeting["id"]
         try:
             build_audio(self.folder)
             finalize_screens(self.meeting)
             live_spans = live_name_spans(self.meeting)
+            postq.checkpoint(mid)
             clean_mic_for_recognition(self.meeting)
+            postq.checkpoint(mid)
             if self.settings.get("refine_after_recording", True) and engine.state == "ready":
                 refine_transcript(self.meeting)
+            postq.checkpoint(mid)
             hub.send({"type": "meeting", "meeting_id": mid, "status": "processing", "step": "diarizing"})
             run_diarization(self.meeting, num_speakers=0)
             carry_live_names(self.meeting, live_spans)
@@ -650,6 +838,8 @@ class Session:
         hub.send({"type": "meeting", "meeting_id": mid, "status": "ready"})
         if self.settings.get("auto_summary") and self.meeting["segments"]:
             start_summary(mid)
+        if self.meeting.get("translate_to"):
+            start_translation(mid)
 
 
 FFMPEG_FALLBACK = FFMPEG
@@ -742,13 +932,14 @@ def transcribe_tracks(meeting: dict, tracks: dict[str, np.ndarray], quality: boo
         hub.send({"type": "progress", "meeting_id": mid, "percent": min(99, int(offset / duration * 100))})
 
     jobs = []
-    context = {"quality": quality}
+    context = {"quality": quality, "batch": True}    # batch lane: never competes with a live recording
     lang = (meeting.get("copilot") or {}).get("language")
     if lang in ("az", "de", "en"):
         context["language"] = lang
     for ch, audio in tracks.items():
         segmenter = make_segmenter(ch, lambda c, off, a: jobs.append(
-            Job(c, off, a, on_pieces, context={**context, "lang_key": f"{mid}-{c}", "names": known_names(meeting)})),
+            Job(c, off, a, on_pieces, context={**context, "lang_key": f"{mid}-{c}", "names": known_names(meeting)},
+                group=mid)),
             max_segment=28.0 if quality else None)
         step = SAMPLE_RATE * 10
         for i in range(0, len(audio), step):
@@ -757,11 +948,15 @@ def transcribe_tracks(meeting: dict, tracks: dict[str, np.ndarray], quality: boo
     # Interleave channels in time order so progress moves forward steadily.
     for job in sorted(jobs, key=lambda j: j.offset):
         engine.submit(job)
-    engine.wait_idle()
+    engine.wait_group(mid)
 
 
 def _norm(word: str) -> str:
     return re.sub(r"[^\w]", "", word.lower())
+
+
+def _norm_line(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", "", text.lower()).split())
 
 
 def mic_copies(segments: list[dict], system_seg: dict) -> list[dict]:
@@ -937,12 +1132,14 @@ def retranscribe(meeting_id: str) -> None:
             raise RuntimeError("No audio")
         meeting.update(segments=[], sentiments=None, error="", status="processing")
         storage.save(meeting)
+        postq.checkpoint(meeting_id)
         clean_mic_for_recognition(meeting)
         tracks = {ch: sf.read(folder / f"{ch}.ogg", dtype="float32")[0]
                   for ch in CHANNELS if (folder / f"{ch}.ogg").exists()}
         hub.send({"type": "meeting", "meeting_id": meeting_id, "status": "processing", "step": "transcribing"})
         transcribe_tracks(meeting, tracks, quality=True)
         remove_echo(meeting["segments"])
+        postq.checkpoint(meeting_id)
         hub.send({"type": "meeting", "meeting_id": meeting_id, "status": "processing", "step": "diarizing"})
         run_diarization(meeting, num_speakers=0)
     except Exception as exc:
@@ -966,6 +1163,7 @@ def process_import(meeting: dict, source: Path) -> None:
         del hq
         transcribe_tracks(meeting, {"system": audio})
         build_audio(folder)
+        postq.checkpoint(mid)
         hub.send({"type": "meeting", "meeting_id": mid, "status": "processing", "step": "diarizing"})
         run_diarization(meeting, num_speakers=0)
     except Exception as exc:
@@ -1207,7 +1405,7 @@ def start_summary(meeting_id: str, language: str | None = None) -> None:
             apply_corrections(meeting, result.get("corrections", {}))
             apply_speaker_names(meeting, result.get("speaker_names", {}))
             first = text.splitlines()[0] if text else ""
-            if first.startswith("# ") and meeting["title"].startswith("Meet "):
+            if first.startswith("# ") and meeting["title"].startswith("Meet ") and not storage.user_edited(meeting_id, "title"):
                 meeting["title"] = first[2:].strip()
             storage.save(meeting, exports=True)
             hub.send({"type": "summary", "meeting_id": meeting_id, "state": "done"})
@@ -1253,13 +1451,23 @@ def _get(meeting_id: str) -> dict:
     return meeting
 
 
+def _preload_translation() -> None:
+    try:
+        localmt.load()
+    except Exception as exc:
+        log.warning("Translation model not loaded: %s", exc)
+
+
 @app.on_event("startup")
 async def on_startup():
     hub.loop = asyncio.get_running_loop()
     engine.load_async(load_settings())
+    cfg = load_settings()
+    if cfg.get("translate_live") and cfg.get("translate_engine", "local") == "local" and localmt.present():
+        threading.Thread(target=_preload_translation, daemon=True, name="nllb-load").start()
     unfinished = [i["id"] for i in storage.list_meetings() if i["status"] != "ready"]
     if unfinished:
-        threading.Thread(target=recover_meetings, args=(unfinished,), daemon=True).start()
+        postq.submit(unfinished[0], lambda: recover_meetings(unfinished))
 
 
 @app.websocket("/ws")
@@ -1293,6 +1501,7 @@ def record_start(body: StartBody):
         if session:
             raise HTTPException(409, "A recording is already running")
         session = Session(body.title)
+        postq.recording(True)
         return session.meeting
 
 
@@ -1304,6 +1513,7 @@ def record_stop():
             raise HTTPException(409, "No recording is running")
         meeting = session.stop()
         session = None
+        postq.recording(False)             # waiting meetings continue now, one after the other
         return meeting
 
 
@@ -1318,7 +1528,7 @@ async def import_file(file: UploadFile, title: str = Form("")):
         while chunk := await file.read(1024 * 1024):
             out.write(chunk)
     storage.save(meeting)
-    threading.Thread(target=process_import, args=(meeting, source), daemon=True).start()
+    postq.submit(meeting["id"], lambda: process_import(meeting, source))
     return meeting
 
 
@@ -1391,10 +1601,10 @@ def meeting_get(meeting_id: str):
 @app.patch("/api/meetings/{meeting_id}")
 def meeting_patch(meeting_id: str, body: MeetingPatch):
     meeting = _get(meeting_id)
-    if body.title is not None:
-        meeting["title"] = body.title.strip() or meeting["title"]
+    if body.title is not None and body.title.strip():
+        storage.set_user_fields(meeting, title=body.title.strip())
     if body.archived is not None:
-        meeting["archived"] = body.archived
+        storage.set_user_fields(meeting, archived=body.archived)
     if body.speakers:
         meeting["speakers"].update({k: v.strip() for k, v in body.speakers.items() if v.strip()})
         merge_same_names(meeting)
@@ -1477,12 +1687,33 @@ def meeting_diarize(meeting_id: str, body: DiarizeBody):
     return meeting
 
 
+class TranslateBody(BaseModel):
+    target: str = ""
+
+
+@app.post("/api/meetings/{meeting_id}/translate")
+def meeting_translate(meeting_id: str, body: TranslateBody | None = None):
+    meeting = _get(meeting_id)
+    if meeting["status"] != "ready":
+        raise HTTPException(409, "The meeting is still being processed")
+    settings = load_settings()
+    target = (body.target if body else "") or settings.get("translate_to", "az")
+    also = settings.get("translate_also", "")
+    meeting["translate_to"] = target
+    meeting["translate_also"] = also if also != target else ""
+    storage.save(meeting)
+    start_translation(meeting_id)            # fills the missing lines of both columns
+    return {"ok": True, "target": target, "also": meeting["translate_also"]}
+
+
 @app.post("/api/meetings/{meeting_id}/retranscribe")
 def meeting_retranscribe(meeting_id: str):
     meeting = _get(meeting_id)
     if meeting["status"] != "ready":
         raise HTTPException(409, "The meeting is still being processed")
-    threading.Thread(target=retranscribe, args=(meeting_id,), daemon=True).start()
+    meeting.update(status="processing", error="")
+    storage.save(meeting)
+    postq.submit(meeting_id, lambda: retranscribe(meeting_id))
     return {"ok": True}
 
 
@@ -1650,6 +1881,7 @@ def copilot_start(body: CopilotStart):
         if session:
             raise HTTPException(409, "A recording is already running")
         session = Session(title, cfg)
+        postq.recording(True)
         return session.meeting
 
 
@@ -1770,7 +2002,8 @@ app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")
 def main():
     import uvicorn
 
-    threading.Timer(1.5, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
+    if not os.environ.get("MURMUR_NO_BROWSER"):
+        threading.Timer(1.5, lambda: webbrowser.open(f"http://{HOST}:{PORT}")).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
 
