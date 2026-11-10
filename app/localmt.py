@@ -95,19 +95,29 @@ def translate(texts: list[str], source: str, target: str, glossary: dict[str, st
     """Translate from `source` to `target` (codes: de, en, az). Same order as the input."""
     if not texts:
         return []
-    flat, owner = [], []
+    from . import azfix
+
+    flat, owner, originals, ach = [], [], [], []
     pattern = lower = None
     if source == "de":
         pattern, lower = _glossary_pattern(glossary)
     for i, text in enumerate(texts):
         for sentence in _sentences(text):
-            flat.append(pattern.sub(lambda m: lower[m.group(1).lower()], sentence) if pattern else sentence)
+            prepared, had_ach = azfix.prepare(sentence, target) if source == "de" else (sentence, False)
+            originals.append(sentence)
+            ach.append(had_ach)
+            flat.append(pattern.sub(lambda m: lower[m.group(1).lower()], prepared) if pattern else prepared)
             owner.append(i)
     if not flat:
         return [""] * len(texts)
-    done = _translate_sentences(flat, source, target)
+    todo = [k for k, s in enumerate(flat) if s.strip()]          # "Ach so." alone needs no model
+    done = [""] * len(flat)
+    for k, piece in zip(todo, _translate_sentences([flat[k] for k in todo], source, target) if todo else []):
+        done[k] = piece
     out = [""] * len(texts)
-    for i, piece in zip(owner, done):
+    for k, (i, piece) in enumerate(zip(owner, done)):
+        if source == "de":
+            piece = azfix.finish(originals[k], piece, target, ach[k])
         out[i] = (out[i] + " " + piece).strip()
     return out
 
