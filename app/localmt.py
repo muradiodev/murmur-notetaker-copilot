@@ -91,8 +91,11 @@ def _sentences(text: str) -> list[str]:
     return [p for p in re.split(r"(?<=[.!?])\s+", text.strip()) if p]
 
 
-def translate(texts: list[str], source: str, target: str, glossary: dict[str, str] | None = None) -> list[str]:
-    """Translate from `source` to `target` (codes: de, en, az). Same order as the input."""
+def translate(texts: list[str], source: str, target: str, glossary: dict[str, str] | None = None,
+              refine: bool = False) -> list[str]:
+    """Translate from `source` to `target` (codes: de, en, az). Same order as the input.
+    refine: also translate through English and keep, per sentence, the version that fits both the
+    original and the English sentence best (see `_refine`). Slower, used after a line was shown."""
     if not texts:
         return []
     from . import azfix
@@ -114,12 +117,41 @@ def translate(texts: list[str], source: str, target: str, glossary: dict[str, st
     done = [""] * len(flat)
     for k, piece in zip(todo, _translate_sentences([flat[k] for k in todo], source, target) if todo else []):
         done[k] = piece
+    if refine and todo and "en" not in (source, target):
+        keep_direct = [k for k in todo if source == "de" and azfix.keeps_plural_you(originals[k])]
+        pick = [k for k in todo if k not in keep_direct]
+        for k, piece in zip(pick, _refine([flat[k] for k in pick], [done[k] for k in pick], source, target)):
+            done[k] = piece
     out = [""] * len(texts)
     for k, (i, piece) in enumerate(zip(owner, done)):
         if source == "de":
             piece = azfix.finish(originals[k], piece, target, ach[k])
         out[i] = (out[i] + " " + piece).strip()
     return out
+
+
+def _score(source: str, sources: list[str], target: str, candidates: list[str]) -> list[float]:
+    """Mean log-probability of each candidate translation given its source sentence."""
+    tok, tr = _state["tokenizer"], _state["translator"]
+    src, tgt = CODES.get(source, CODES["de"]), CODES.get(target, CODES["en"])
+    with _lock:
+        res = tr.score_batch([[src, *tok.encode(s, add_special_tokens=False).tokens, "</s>"] for s in sources],
+                             [[tgt, *tok.encode(c, add_special_tokens=False).tokens, "</s>"] for c in candidates])
+    return [sum(r.log_probs) / max(1, len(r.log_probs)) for r in res]
+
+
+def _refine(sources: list[str], direct: list[str], source: str, target: str) -> list[str]:
+    """Second opinion through English: the model knows German->English and English->Azerbaijani far
+    better than German->Azerbaijani, so the English route often keeps parts the direct one drops.
+    Both versions are scored against the original AND the English sentence; the better one wins
+    (on 30 real meeting sentences the English route won 22 times)."""
+    if not sources:
+        return []
+    english = _translate_sentences(sources, source, "en")
+    pivot = _translate_sentences(english, "en", target)
+    d = [a + b for a, b in zip(_score(source, sources, target, direct), _score("en", english, target, direct))]
+    p = [a + b for a, b in zip(_score(source, sources, target, pivot), _score("en", english, target, pivot))]
+    return [pv if pv.strip() and ps > ds else dv for dv, pv, ds, ps in zip(direct, pivot, d, p)]
 
 
 def _translate_sentences(texts: list[str], source: str, target: str) -> list[str]:

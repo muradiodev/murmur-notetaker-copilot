@@ -141,16 +141,23 @@ def _translation_field(meeting: dict, target: str | None) -> str:
 _translations_lock = threading.Lock()
 
 
-def apply_translations(meeting_id: str, items: dict[str, str], target: str | None = None) -> None:
-    """Store translated lines on their segments (live meeting or saved one) and tell the browser."""
+def apply_translations(meeting_id: str, items: dict[str, str], target: str | None = None,
+                       refined: bool = False) -> None:
+    """Store translated lines on their segments (live meeting or saved one) and tell the browser.
+    Live, a fast direct line is checked again through English afterwards (`refiner`)."""
     live = session
     if live and live.meeting["id"] == meeting_id:
         with live.lock:
             field = _translation_field(live.meeting, target)
+            recheck = []
             for seg in live.meeting["segments"]:
                 if seg["id"] in items:
                     seg[field] = items[seg["id"]]
+                    if not refined and target:
+                        recheck.append((seg["id"], seg["text"], seg.get("lang"), items[seg["id"]]))
             storage.save(live.meeting)
+        for seg_id, text, lang, shown in recheck:
+            refiner.submit(meeting_id, seg_id, text, target, lang, shown)
     else:
         with _translations_lock:          # both columns of one meeting must not overwrite each other
             meeting = storage.load(meeting_id)
@@ -163,6 +170,9 @@ def apply_translations(meeting_id: str, items: dict[str, str], target: str | Non
             storage.save(meeting)
     hub.send({"type": "translation", "meeting_id": meeting_id, "items": items, "field": field})
 
+
+refiner = translate.Refiner(load_settings,
+                            lambda mid, items, target: apply_translations(mid, items, target, refined=True))
 
 translator = translate.LiveTranslator(
     load_settings, apply_translations,

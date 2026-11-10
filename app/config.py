@@ -91,7 +91,8 @@ DEFAULTS = {
     # "local" = NLLB model on this machine (nothing is sent anywhere), "ai" = your AI provider (text only)
     "translate_live": True,
     "translate_to": "en",
-    "translate_also": "",          # optional second translation column, e.g. "az" next to "en"
+    "translate_also": "",
+    "translate_refine": True,      # local engine: re-check non-English lines through English, then pick the better one          # optional second translation column, e.g. "az" next to "en"
     "translate_engine": "local",
     "translate_glossary": "",      # extra terms: "Termin=appointment, Rechnung=invoice" (team terms can also go in data/team_terms.json)
 }

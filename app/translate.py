@@ -66,7 +66,7 @@ def uses_local(settings: dict) -> bool:
 
 
 def translate_lines(settings: dict, lines: list[tuple[str, str]], target: str, context: list[str] | None = None,
-                    sources: dict[str, str] | None = None) -> dict[str, str]:
+                    sources: dict[str, str] | None = None, refine: bool = False) -> dict[str, str]:
     """[(id, text)] -> {id: translation}. `sources` maps ids to their language (de, en, az).
     Raises when the engine fails."""
     if uses_local(settings):
@@ -76,7 +76,8 @@ def translate_lines(settings: dict, lines: list[tuple[str, str]], target: str, c
         out: dict[str, str] = {}
         for lang, part in by_lang.items():
             glossary = localmt.parse_glossary(settings.get("translate_glossary", ""))
-            for (i, _), text in zip(part, localmt.translate([t for _, t in part], lang, target, glossary)):
+            for (i, _), text in zip(part, localmt.translate([t for _, t in part], lang, target, glossary,
+                                                            refine=refine)):
                 if text:
                     out[i] = text
         return out
@@ -93,11 +94,53 @@ def translate_lines(settings: dict, lines: list[tuple[str, str]], target: str, c
             if isinstance(x, dict) and str(x.get("id")) in wanted and str(x.get("text", "")).strip()}
 
 
+def refine_wanted(settings: dict, target: str) -> bool:
+    """English second opinion (local engine only, and only for targets other than English)."""
+    return uses_local(settings) and target != "en" and settings.get("translate_refine", True) is not False
+
+
+class Refiner:
+    """Live: a line is shown with the fast direct translation first; this worker then translates it
+    again through English (`localmt._refine`) and replaces the line when the result differs."""
+
+    def __init__(self, get_settings: Callable[[], dict], on_result: Callable[[str, dict[str, str], str], None]):
+        self.get_settings, self.on_result = get_settings, on_result
+        self.q: "queue.Queue[tuple[str, str, str, str, str, str]]" = queue.Queue()
+        threading.Thread(target=self._run, daemon=True, name="live-refine").start()
+
+    def submit(self, meeting_id: str, seg_id: str, text: str, target: str, source: str | None, shown: str) -> None:
+        if refine_wanted(self.get_settings(), target):
+            self.q.put((meeting_id, seg_id, text, target, source or "de", shown))
+
+    def _run(self) -> None:
+        while True:
+            batch = [self.q.get()]
+            while len(batch) < 8:
+                try:
+                    batch.append(self.q.get_nowait())
+                except queue.Empty:
+                    break
+            groups: dict[tuple[str, str, str], list[tuple[str, str, str]]] = {}
+            for meeting_id, seg_id, text, target, source, shown in batch:
+                groups.setdefault((meeting_id, target, source), []).append((seg_id, text, shown))
+            for (meeting_id, target, source), lines in groups.items():
+                try:
+                    settings = self.get_settings()
+                    glossary = localmt.parse_glossary(settings.get("translate_glossary", ""))
+                    better = localmt.translate([t for _, t, _ in lines], source, target, glossary, refine=True)
+                    changed = {i: b for (i, _, shown), b in zip(lines, better) if b and b != shown}
+                    if changed:
+                        self.on_result(meeting_id, changed, target)
+                except Exception:
+                    log.exception("Live refine failed")
+
+
 def translate_segments(settings: dict, segments: list[dict], target: str, chunk: int = 20,
                        progress: Callable[[dict[str, str]], None] | None = None,
                        field: str = "translation", force: bool = False) -> dict[str, str]:
     """Translate a whole transcript in chunks (after the meeting, or on demand). Lines already in the
-    target language are copied as they are."""
+    target language are copied as they are. Non-English targets get the English second opinion
+    (`refine_wanted`)."""
     done: dict[str, str] = {}
     todo = [s for s in sorted(segments, key=lambda s: s["start"])
             if (force or not s.get(field)) and s.get("lang") != target]
@@ -105,7 +148,7 @@ def translate_segments(settings: dict, segments: list[dict], target: str, chunk:
     for i in range(0, len(todo), chunk):
         part = todo[i:i + chunk]
         got = translate_lines(settings, [(s["id"], s["text"]) for s in part], target, previous[-4:],
-                              {s["id"]: s.get("lang") for s in part})
+                              {s["id"]: s.get("lang") for s in part}, refine=refine_wanted(settings, target))
         done.update(got)
         previous = [s["text"] for s in part]
         if progress:

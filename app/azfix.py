@@ -119,6 +119,11 @@ def _match_case(word: str, repl: str) -> str:
     return repl[:1].upper() + repl[1:] if word[:1].isupper() else repl
 
 
+def keeps_plural_you(source: str) -> bool:
+    """The speaker said "ihr / euch / euer": the plural "siz" must stay."""
+    return bool(_PLURAL_YOU.search(source))
+
+
 def to_informal(text: str) -> str:
     text = re.sub(r"\w+", lambda m: _match_case(m.group(0), _PRONOUNS.get(m.group(0).lower(), m.group(0)))
                   if m.group(0).lower() in _PRONOUNS else m.group(0), text)
