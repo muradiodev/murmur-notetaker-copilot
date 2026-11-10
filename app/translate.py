@@ -95,12 +95,12 @@ def translate_lines(settings: dict, lines: list[tuple[str, str]], target: str, c
 
 def translate_segments(settings: dict, segments: list[dict], target: str, chunk: int = 20,
                        progress: Callable[[dict[str, str]], None] | None = None,
-                       field: str = "translation") -> dict[str, str]:
+                       field: str = "translation", force: bool = False) -> dict[str, str]:
     """Translate a whole transcript in chunks (after the meeting, or on demand). Lines already in the
     target language are copied as they are."""
     done: dict[str, str] = {}
     todo = [s for s in sorted(segments, key=lambda s: s["start"])
-            if not s.get(field) and s.get("lang") != target]
+            if (force or not s.get(field)) and s.get("lang") != target]
     previous: list[str] = []
     for i in range(0, len(todo), chunk):
         part = todo[i:i + chunk]

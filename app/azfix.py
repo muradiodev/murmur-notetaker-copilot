@@ -33,11 +33,29 @@ def _code(i: int) -> str:
 
 _SOURCE = [re.compile(r"(?<![\wÄÖÜäöüß])" + re.escape(t["de"]) + r"(e?s)?(?![\wÄÖÜäöüß])", re.IGNORECASE)
            for t in KEEP_TERMS]
-_HARMONY = {   # vowel in a suffix -> vowel after a term of this group
-    "front": str.maketrans("aıuüoö", "əiiiəə"), "front-round": str.maketrans("aıuioə", "əüüüəə"),
-    "back": str.maketrans("əiüuöo", "aııııa"), "back-round": str.maketrans("əiüıöo", "auuuua"),
-}
+# Vowel harmony: every vowel of a suffix follows the vowel before it (the term's last vowel first).
+# Wide vowels become a/ə, narrow ones ı/i/u/ü; a final k/q follows back/front ("deyik" -> "dayıq").
+_START = {"front": "e", "front-round": "ü", "back": "a", "back-round": "o"}
+_BACK, _ROUND, _WIDE = set("aıou"), set("oöuü"), set("aəeoö")
 _VOWELS = "aıoueəiöü"
+
+
+def _harmonize(prev: str, suffix: str) -> str:
+    out = []
+    for pos, ch in enumerate(suffix):
+        low = ch.lower()
+        if low in _VOWELS:
+            back, round_ = prev in _BACK, prev in _ROUND
+            if low in _WIDE:
+                new = "a" if back else "ə"
+            else:
+                new = ("u" if round_ else "ı") if back else ("ü" if round_ else "i")
+            prev = new
+            ch = new
+        elif low in "kq" and pos == len(suffix) - 1:
+            ch = "q" if prev in _BACK else "k"
+        out.append(ch)
+    return "".join(out)
 
 
 def protect(source: str) -> str:
@@ -48,10 +66,10 @@ def protect(source: str) -> str:
 
 
 def _fit_suffix(term: dict, suffix: str) -> str:
-    suffix = suffix.translate(_HARMONY.get(term.get("harmony", "front"), _HARMONY["front"]))
+    suffix = suffix.lower()
     if not term.get("vowel_end") and len(suffix) > 1 and suffix[0] in "nys" and suffix[1] in _VOWELS:
         suffix = suffix[1:]               # the code ends in a vowel ("bir"): QX01-nin -> ticketin, QX01-yə -> ticketə
-    return suffix
+    return _harmonize(_START.get(term.get("harmony", "front"), "e"), suffix)
 
 
 def restore(text: str, target: str) -> str:

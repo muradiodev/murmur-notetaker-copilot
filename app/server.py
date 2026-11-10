@@ -203,7 +203,7 @@ def apply_edits(meeting_id: str, items: dict[str, str]) -> None:
 editor = polish.LineEditor(load_settings, apply_edits)
 
 
-def start_translation(meeting_id: str, target: str | None = None) -> None:
+def start_translation(meeting_id: str, target: str | None = None, force: bool = False) -> None:
     """Translate every line of a saved meeting that has no translation yet (after refine, or on demand).
     Without an explicit target both columns are filled: translate_to and translate_also."""
     def work():
@@ -216,7 +216,7 @@ def start_translation(meeting_id: str, target: str | None = None) -> None:
         hub.send({"type": "translation_state", "meeting_id": meeting_id, "state": "running"})
         try:
             for lang, field in targets:
-                translate.translate_segments(settings, meeting["segments"], lang, field=field,
+                translate.translate_segments(settings, meeting["segments"], lang, field=field, force=force,
                                              progress=lambda got, lang=lang: apply_translations(meeting_id, got, lang))
         except Exception as exc:
             log.warning("Translation of %s failed: %s", meeting_id, exc)
@@ -1702,7 +1702,7 @@ def meeting_translate(meeting_id: str, body: TranslateBody | None = None):
     meeting["translate_to"] = target
     meeting["translate_also"] = also if also != target else ""
     storage.save(meeting)
-    start_translation(meeting_id)            # fills the missing lines of both columns
+    start_translation(meeting_id, force=True)   # both columns again, with the current model and rules
     return {"ok": True, "target": target, "also": meeting["translate_also"]}
 
 
