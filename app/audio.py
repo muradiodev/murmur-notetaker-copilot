@@ -14,6 +14,10 @@ from .config import PLAYBACK_RATE, SAMPLE_RATE, SILERO_VAD
 log = logging.getLogger(__name__)
 
 CHUNK = PLAYBACK_RATE // 10  # 100 ms at the capture rate
+# Windows buffer behind each device. With only 100 ms (one chunk), any moment the Python process is
+# busy (a large save, a voiceprint) overflows it and Windows drops audio ("data discontinuity in
+# recording": words go missing live). One second rides out such moments; reads stay 100 ms.
+DEVICE_BUFFER = PLAYBACK_RATE
 
 
 def list_devices() -> dict:
@@ -73,14 +77,16 @@ class Capture(threading.Thread):
         try:
             device = _get_mic(self.device_id) if self.channel == "mic" else _get_loopback(self.device_id)
             log.info("%s capture: %s", self.channel, device.name)
-            with device.recorder(samplerate=PLAYBACK_RATE, blocksize=CHUNK) as rec:
+            with device.recorder(samplerate=PLAYBACK_RATE, blocksize=DEVICE_BUFFER) as rec:
                 while not self.stop_event.is_set() and not self.halt.is_set():
                     data = rec.record(numframes=CHUNK)
                     mono = data.mean(axis=1) if data.ndim > 1 else data
                     mono = np.nan_to_num(mono.astype(np.float32))
                     expected = int((time.monotonic() - self.t0) * PLAYBACK_RATE)
                     gap = expected - self.written - len(mono)
-                    if gap > PLAYBACK_RATE * 0.3:
+                    # audio still waiting in the device buffer is not lost: only a gap longer than
+                    # the buffer is real loss (or a device that delivered nothing) and becomes silence
+                    if gap > DEVICE_BUFFER * 1.5:
                         self._emit(np.zeros(gap, dtype=np.float32))
                     self._emit(mono)
         except Exception as exc:  # device errors must not kill the session

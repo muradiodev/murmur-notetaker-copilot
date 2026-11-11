@@ -120,6 +120,8 @@
             </div>
           </section>
           <div class="live-feed" id="liveFeed"></div>
+          <button class="live-jump hidden" id="liveJump"><i class="ph ph-arrow-down"></i><span data-i18n="live.jump"></span></button>
+          <div class="live-now" id="liveNow" aria-hidden="true"></div>
         </div>
         <aside class="answer-panel hidden" id="answerPanel" data-i18n-aria-label="cp.aiAnswers">
           <header class="ap-head">
@@ -307,6 +309,12 @@
           </div>
           <label class="check"><input type="checkbox" id="setPolish"><span data-i18n="settings.polish"></span></label>
           <label class="check"><input type="checkbox" id="setRefine"><span data-i18n="settings.refine"></span></label>
+          <label class="check"><input type="checkbox" id="setMicIsMe"><span data-i18n="settings.micIsMe"></span></label>
+          <div class="field">
+            <label for="setMyName" data-i18n="settings.myName"></label>
+            <input id="setMyName" type="text" autocomplete="off" spellcheck="false">
+            <p class="help" data-i18n="settings.myNameHelp"></p>
+          </div>
           <div class="field">
             <label for="setVocabulary" data-i18n="settings.vocabulary"></label>
             <input id="setVocabulary" type="text" autocomplete="off" spellcheck="false">

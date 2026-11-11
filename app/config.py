@@ -83,6 +83,12 @@ DEFAULTS = {
     # While recording: every sentence appears at once, then the AI provider checks it a moment later (with the lines
     # before it as context) and fixes misheard terms and names in place, like the summary does after the meeting.
     "live_polish": True,
+    # In a call the microphone is you: your lines get your name, the other people are told apart by
+    # voice on the system channel, and anything on the mic that is not your voice (the others leaking
+    # from loudspeakers, text invented on noise) is dropped. In-person meetings are detected (nothing
+    # on the system channel) and then every voice on the mic is separated.
+    "mic_is_me": True,
+    "my_name": "",                 # shown for your lines; empty = "Me"
     "copilot_defaults": {},     # Murmur Copilot: last used session preferences (language, model, answer style, instructions)
     # Names, companies, products, jargon: recognition prefers these spellings (comma separated)
     "vocabulary": "",
@@ -91,8 +97,8 @@ DEFAULTS = {
     # "local" = NLLB model on this machine (nothing is sent anywhere), "ai" = your AI provider (text only)
     "translate_live": True,
     "translate_to": "en",
-    "translate_also": "",
-    "translate_refine": True,      # local engine: re-check non-English lines through English, then pick the better one          # optional second translation column, e.g. "az" next to "en"
+    "translate_also": "",          # optional second translation column, e.g. "az" next to "en"
+    "translate_refine": True,      # local engine: re-check non-English lines through English, then pick the better one
     "translate_engine": "local",
     "translate_glossary": "",      # extra terms: "Termin=appointment, Rechnung=invoice" (team terms can also go in data/team_terms.json)
 }

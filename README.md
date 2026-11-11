@@ -81,7 +81,8 @@ The live transcript is a fast draft. When the meeting ends, the audio is re‑tr
 - **AI summary**: short summary, topics, decisions, action items and open questions, written in the meeting's language.
 - **Import** an `mp3 / m4a / wav / mp4 / mkv …` file and transcribe it directly.
 - **Export** to TXT, SRT or Markdown.
-- **Echo filter** removes speaker bleed when you use speakers instead of headphones.
+- **Echo filter** removes speaker bleed when you use speakers instead of headphones: the mic is echo-cancelled against the computer audio, and in a call every mic line must match your own voiceprint, so the others' voices (and text Whisper invents on noise) never appear twice.
+- **You and the others**: your microphone is labelled with your name; the people in the call are told apart by voice on the computer audio.
 
 </details>
 
@@ -190,7 +191,7 @@ All speech models run locally and live in `models/` (not tracked in git). [`app/
 |---|---|---|
 | `faster-whisper/large-v3-turbo` | Whisper large‑v3‑turbo (CTranslate2) | 🗣️ Default recognition, multilingual, GPU |
 | `parakeet-tdt-0.6b-v3-onnx` | NVIDIA Parakeet TDT 0.6B v3 (ONNX int8) | ⚡ Optional engine, DE/EN, fast on CPU |
-| `diarization/` | pyannote segmentation 3.0 + WeSpeaker ResNet34 (sherpa‑onnx) | 👥 Speaker separation |
+| `diarization/` | 3D‑Speaker ERes2NetV2 voiceprints (sherpa‑onnx) | 👥 Speaker separation, “is that my voice?” |
 | `silero_vad.onnx` | Silero VAD | 🎚️ Voice activity and segmentation |
 | `aec/` | DTLN‑aec (ONNX) | 🔇 Echo cancellation and denoise |
 

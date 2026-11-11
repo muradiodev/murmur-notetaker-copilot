@@ -20,6 +20,22 @@ HALLUCINATIONS = re.compile(
     r"altyazı|izlədiyiniz üçün|abunə olun|\.+|you)[\s!.]*$",
     re.IGNORECASE,
 )
+# Subtitle credits from Whisper's training data, invented on noise in any language
+CREDITS = re.compile(r"untertitel(ung)? (des|im auftrag|von)|amara\.org|subtitles? (by|created)|субтитр|"
+                     r"продолжение следует|thanks for watching|gracias por ver", re.IGNORECASE)
+
+
+def vocabulary_echo(text: str, hotwords: str | None) -> bool:
+    """Whisper repeats the vocabulary hint on silence or noise ("Grafana, Kafka, Backend, Kafka,"):
+    a line made almost only of hint words is not speech."""
+    if not hotwords:
+        return False
+    words = re.findall(r"\w+", text.lower())
+    vocab = set(re.findall(r"\w+", hotwords.lower()))
+    if len(words) < 2:
+        return False
+    share = sum(w in vocab for w in words) / len(words)
+    return share >= 0.75 and ("," in text or len(words) >= 3)
 
 
 # Words the recognizer keeps mishearing. The team's own words come from data/team_terms.json. Whole words, case-insensitive. Ordinary words
@@ -165,6 +181,8 @@ class WhisperEngine:
         for s in segments:
             text = fix_terms(clean_repetitive_text(s.text.strip()))
             if not text or s.no_speech_prob > 0.6 or s.avg_logprob < -1.2 or HALLUCINATIONS.match(text):
+                continue
+            if CREDITS.search(text) or vocabulary_echo(text, hotwords):
                 continue
             if s.words and len(s.words) <= 3 and sum(w.probability for w in s.words) / len(s.words) < 0.45:
                 continue  # a few low-confidence words on noise: typical Whisper hallucination

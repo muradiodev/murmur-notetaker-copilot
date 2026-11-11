@@ -119,6 +119,7 @@ function dayGroup(iso) {
 
 function speakerColor(key) {
   if (key === "mic" || key === "system") return "var(--text-3)";
+  if (key === "me") return "var(--accent)";
   const n = parseInt(String(key).replace(/\D/g, ""), 10) || 1;
   return SPEAKER_COLORS[(n - 1) % SPEAKER_COLORS.length];
 }
@@ -481,6 +482,7 @@ async function openMeeting(id, { keepTab = false } = {}) {
   setMode(m.mode === "copilot" ? "copilot" : "notes");
   if (m.status === "recording") {
     showView("liveView");
+    if (switched) { state.follow = true; state.interim = {}; }
     $("liveTitle").value = m.title;
     renderShareButton();
     cpLiveLayout(m);
@@ -1166,21 +1168,95 @@ for (const id of ["muteMic", "muteSys"]) {
 // Interim captions: what is being said right now (fast, may change), per channel.
 state.interim = {};
 
+// The live view is built to be read while people talk fast:
+// - Only finished sentences go into the transcript. What is being said right now (the interim
+//   caption, which changes every second) sits in a fixed-height bar below it, so the transcript
+//   never grows and shrinks with it.
+// - Updates are keyed by turn: only turns that changed are touched, everything else keeps its DOM
+//   node, so the browser's scroll anchoring holds your reading position when lines above change
+//   (a translation arrives, a speaker gets corrected).
+// - It follows the newest line only while you are at the bottom. Scroll up to read and it stays
+//   still; "Back to live" returns.
+state.follow = true;
+let liveFrame = 0;
+
 function renderLive() {
+  if (liveFrame) return;                     // many events per second: one render per frame
+  liveFrame = requestAnimationFrame(() => { liveFrame = 0; if (state.current && state.current.status === "recording") drawLive(); });
+}
+
+function nodeFrom(html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html.trim();
+  return tpl.content.firstElementChild;
+}
+
+function drawLive() {
   const m = state.current;
-  if (m.mode === "copilot") return cpRenderLive(m);
+  const live = $("liveView");
+  if (m.mode === "copilot") { live.classList.remove("notes-live"); return cpRenderLive(m); }
+  live.classList.add("notes-live");
   const feed = $("liveFeed");
-  const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 120;
   const turns = turnsOf(sortedSegs(m), 4);   // live: a pause of more than 4 s starts a new line
   const cols = state.translate ? trCols(state.translateTo, state.translateAlso) : [];
-  const interim = Object.entries(state.interim)
-    .map(([ch, it]) => `<article class="turn interim${trClass(cols)}" style="--spk:var(--text-3)"><div>
-        <div class="turn-head"><span class="who">${esc(it.label || "")}</span><span class="range mono">${clock(it.start)}</span></div>
-        <p class="text">${esc(it.committed || "")} <span class="tentative">${esc(it.tentative ?? it.text)}</span></p></div>${cols.map(() => `<div class="tr"><span class="tr-wait">\u2026</span></div>`).join("")}</article>`).join("");
-  const body = turns.map((turn) => turnHtml(m, turn, { live: true, cols })).join("") + interim;
-  feed.innerHTML = body ? (cols.length ? translationHeader(cols) : "") + body : `<p class="waiting">${esc(t("live.waiting"))}</p>`;
-  if (nearBottom) feed.scrollTop = feed.scrollHeight;
+  const items = turns.map((turn) => ({ key: `t-${turn.segs[0].id}`, html: turnHtml(m, turn, { live: true, cols }) }));
+  if (items.length && cols.length) items.unshift({ key: `h-${cols.map((c) => c.lang).join("-")}`, html: translationHeader(cols) });
+  if (!items.length) items.push({ key: "waiting", html: `<p class="waiting">${esc(t("live.waiting"))}</p>` });
+  const have = new Map();
+  for (const el of [...feed.children]) {
+    if (el.dataset.key) have.set(el.dataset.key, el); else el.remove();
+  }
+  items.forEach((item, i) => {
+    let el = have.get(item.key);
+    if (el && el._html !== item.html) {
+      const fresh = nodeFrom(item.html);
+      el.className = fresh.className;
+      el.setAttribute("style", fresh.getAttribute("style") || "");
+      el.innerHTML = fresh.innerHTML;          // same node: scroll anchoring keeps working
+      el._html = item.html;
+    } else if (!el) {
+      el = nodeFrom(item.html);
+      el.dataset.key = item.key;
+      el._html = item.html;
+    }
+    have.delete(item.key);
+    if (feed.children[i] !== el) feed.insertBefore(el, feed.children[i] || null);
+  });
+  for (const el of have.values()) el.remove();
+  drawNow();
+  if (state.follow) toBottom();
+  $("liveJump").classList.toggle("hidden", state.follow);
 }
+
+// What is being said right now: one line per channel, newest words at the bottom, fixed height.
+function drawNow() {
+  const rows = Object.entries(state.interim).sort((a, b) => a[1].at - b[1].at).map(([ch, it]) => `<div class="now-row">
+      <span class="who" style="--spk:${ch === "mic" ? speakerColor("me") : "var(--text-3)"}">${esc(it.label || t(ch === "mic" ? "live.mic" : "live.system"))}</span>
+      <span class="now-text">${esc(it.committed || "")} <span class="tentative">${esc(it.tentative ?? it.text)}</span></span></div>`);
+  $("liveNow").innerHTML = rows.join("") || `<div class="now-row idle"><span class="now-text">${esc(t("live.listening"))}</span></div>`;
+}
+
+function toBottom() {
+  const feed = $("liveFeed");
+  state.autoScroll = true;
+  feed.scrollTop = feed.scrollHeight;
+  requestAnimationFrame(() => { state.autoScroll = false; });
+}
+
+function setFollow(on) {
+  if (state.follow === on) return;
+  state.follow = on;
+  $("liveJump").classList.toggle("hidden", on);
+  if (on) toBottom();
+}
+
+$("liveFeed").addEventListener("scroll", () => {
+  if (state.autoScroll || !state.current || state.current.status !== "recording" || state.current.mode === "copilot") return;
+  const feed = $("liveFeed");
+  setFollow(feed.scrollHeight - feed.scrollTop - feed.clientHeight < 32);
+}, { passive: true });
+$("liveFeed").addEventListener("wheel", (e) => { if (e.deltaY < 0) setFollow(false); }, { passive: true });
+$("liveJump").addEventListener("click", () => setFollow(true));
 
 function translationHeader(cols) {
   return `<div class="tr-cols${cols.length === 2 ? " tr-cols2" : ""}"><span></span><span>${esc(t("live.original"))}</span>${
@@ -1346,6 +1422,8 @@ async function showSettings() {
     $("setRefine").checked = s.refine_after_recording !== false;
     $("setPolish").checked = s.live_polish !== false;
     $("setVocabulary").value = s.vocabulary || "";
+    $("setMicIsMe").checked = s.mic_is_me !== false;
+    $("setMyName").value = s.my_name || "";
     settingsCache = s;
     $("setKey").value = s.anthropic_api_key || "";
     $("setWorkspace").value = s.anthropic_workspace_id || "";
@@ -1366,6 +1444,7 @@ const SETTING_FIELDS = {
   setTranslateAlso: "translate_also",
   setTranslateLive: "translate_live", setTranslateEngine: "translate_engine",
   setRefine: "refine_after_recording", setPolish: "live_polish", setVocabulary: "vocabulary",
+  setMicIsMe: "mic_is_me", setMyName: "my_name",
   setKey: "anthropic_api_key", setWorkspace: "anthropic_workspace_id",
   setOpenaiKey: "openai_api_key", setNvidiaKey: "nvidia_api_key",
 };
@@ -1585,8 +1664,8 @@ function handle(msg) {
       break;
     case "interim":
       if (isCur && cur.status === "recording") {
-        state.interim[msg.channel] = { start: msg.start, text: msg.text, committed: msg.committed, tentative: msg.tentative, label: msg.label };
-        renderLive();
+        state.interim[msg.channel] = { start: msg.start, text: msg.text, committed: msg.committed, tentative: msg.tentative, label: msg.label, at: Date.now() };
+        if (cur.mode === "copilot") renderLive(); else drawNow();
       }
       break;
     case "speakers":

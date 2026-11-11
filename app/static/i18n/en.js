@@ -81,6 +81,8 @@ window.I18N.en = {
   "live.unmuteSys": "Unmute computer audio",
   "live.muted": "muted",
   "live.waiting": "Listening. Speech will appear here as soon as someone talks.",
+  "live.listening": "Listening\u2026",
+  "live.jump": "Back to live",
   "live.titleLabel": "Meeting title",
 
   // meeting header and menu
@@ -204,6 +206,9 @@ window.I18N.en = {
   "settings.langEn": "English",
   "settings.polish": "Fix the live text with AI while recording (misheard terms and names are corrected a moment after each line appears, like the summary does afterwards; only text is sent)",
   "settings.refine": "Improve the transcript after recording (listens to the audio again, slower but more accurate)",
+  "settings.micIsMe": "In calls, the microphone is me: label my lines with my name and drop other voices the microphone picks up from the speakers",
+  "settings.myName": "Your name",
+  "settings.myNameHelp": "Shown for what you say into the microphone. Empty: “Me”.",
   "settings.vocabulary": "Custom vocabulary",
   "settings.vocabularyHelp": "Names, companies, products and terms, separated by commas. Recognition prefers these spellings. Speaker names you set are added automatically.",
   "settings.engine": "Engine",

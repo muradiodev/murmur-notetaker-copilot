@@ -21,12 +21,13 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import aec, copilot, diarize, dtln, localmt, names, polish, setup_models, storage, summary, translate
+from . import aec, copilot, diarize, dtln, livemic, localmt, names, polish, setup_models, storage, summary, translate
 from .audio import Capture, list_devices, make_segmenter
 import soxr
 
-from .config import (FFMPEG, HOST, PORT, PLAYBACK_RATE, PARAKEET_DIR, SAMPLE_RATE, WHISPER_DIR,
+from .config import (DATA_DIR, FFMPEG, HOST, PORT, PLAYBACK_RATE, PARAKEET_DIR, SAMPLE_RATE, WHISPER_DIR,
                      load_settings, save_settings)
+from .diarize import ME
 from .transcriber import EngineManager, Job
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -346,27 +347,23 @@ class Session:
             self.copilot = copilot.Copilot(self, copilot_cfg, self.settings, hub)
         # live echo cancellation: the mic is cleaned with the loopback as reference before it is
         # segmented and transcribed, so speaker sound picked up by the mic never reaches captions
-        self.live_aec = None
-        if dtln.available():
-            try:
-                self.live_aec = dtln.StreamingDTLN()
-            except Exception:
-                log.exception("Live echo cancellation unavailable")
-        self.sys16 = np.zeros(0, np.float32)   # recent loopback at 16 kHz
-        self.sys16_start = 0                   # absolute sample index of sys16[0]
-        self.sys16_end = 0
-        self.mic16 = np.zeros(0, np.float32)   # mic waiting for its matching loopback
-        self.mic16_start = 0
-        self.mic_energy: dict[int, tuple[float, float, float]] = {}  # 100 ms frame -> (raw, clean, loopback)
-        self.mic_wait_since = None
-        self.mic_raw = np.zeros(0, np.float32)   # recent raw mic (for measuring the echo delay)
-        self.mic_raw_start = 0
-        self.ref_delay = 0                        # samples the echo trails the loopback
-        self.delay_checked_at = 0
+        self.mic = livemic.MicPath()
+        # the microphone is you; your voiceprint (learned while the speakers are silent) tells your
+        # words apart from the other participants' voices leaking out of the loudspeakers
+        self.mic_is_me = self.settings.get("mic_is_me", True) is not False
+        self.me = livemic.Voice(DATA_DIR / "my_voice.npy")
+        self.me_sim: dict[str, float] = {}       # mic line id -> similarity to your voice
+        self.voices = diarize.VoiceWorker() if diarize.available() else None
+        if self.voices:
+            threading.Thread(target=self.voices.embed, args=(np.zeros(SAMPLE_RATE, np.float32),),
+                             daemon=True).start()   # loads the model in the child before the first line
         self.speakers = diarize.LiveSpeakers()
-        self.meeting["speakers"] = {}
-        # 16 kHz audio kept in memory (int16) so the full diarization can run while recording
-        self.audio16 = {"mic": [], "system": []}
+        self.meeting["speakers"] = {ME: self.my_name()} if self.mic_is_me else {}
+        # finished sentences are handled one by one on their own thread (voiceprint, echo check,
+        # speaker), so speech-to-text never waits for them
+        self.lines: "queue.Queue[tuple]" = queue.Queue()
+        self.regroup_due = 0
+        self.call_heard = False                  # someone spoke on the system channel: an online call
         # you can mute either source while recording; muted audio is written as silence so the
         # timeline (and screen video sync) never shifts
         self.muted = {"mic": False, "system": False}
@@ -375,16 +372,19 @@ class Session:
         # reads, so Windows never drops audio.
         self.chunks: "queue.Queue[tuple[str, np.ndarray]]" = queue.Queue()
         threading.Thread(target=self._process_loop, daemon=True, name="audio-processing").start()
+        threading.Thread(target=self._line_loop, daemon=True, name="live-lines").start()
         # start the devices last: their first chunk must find every field above
         for c in self.captures.values():
             c.start()
         threading.Thread(target=self._levels, daemon=True).start()
         threading.Thread(target=self._interim_loop, daemon=True).start()
-        threading.Thread(target=self._rediarize_loop, daemon=True).start()
 
     @property
     def elapsed(self) -> float:
         return time.monotonic() - self.t0
+
+    def my_name(self) -> str:
+        return str(self.settings.get("my_name") or "").strip() or "Me"
 
     # Screen clips: the browser records the shared screen and uploads chunks. Each clip is
     # stamped with the meeting second it started at, so it lines up with the audio.
@@ -453,106 +453,22 @@ class Session:
                 self.segmenters["system"].feed(speech)
                 # read by Murmur Copilot: is the other side talking right now (VAD, not captions)
                 self.system_speaking = self.segmenters["system"].speaking()
-                self.audio16["system"].append(np.clip(speech * 32767, -32768, 32767).astype(np.int16))
-                self.sys16 = np.concatenate([self.sys16, speech])
-                self.sys16_end += len(speech)
-                keep = SAMPLE_RATE * 10
-                if len(self.sys16) > keep:
-                    self.sys16_start += len(self.sys16) - keep
-                    self.sys16 = self.sys16[-keep:]
+                self.mic.add_system(speech)
             else:
-                self.mic16 = np.concatenate([self.mic16, speech])
+                self.mic.add_mic(speech)
             self._drain_mic()
 
     def _drain_mic(self, force: bool = False) -> None:
-        """Clean pending mic audio once the loopback for the same moment has arrived.
-        Loopback delivers nothing while the PC is silent, so after 300 ms the mic goes on alone."""
-        if not len(self.mic16):
-            return
-        if self.live_aec is None:
-            self.audio16["mic"].append(np.clip(self.mic16 * 32767, -32768, 32767).astype(np.int16))
-            self.segmenters["mic"].feed(self.mic16)
-            self.mic16_start += len(self.mic16)
-            self.mic16 = np.zeros(0, np.float32)
-            return
-        end = self.mic16_start + len(self.mic16)
-        self._update_echo_delay(end)
-        if self.sys16_end < end - self.ref_delay and not force:
-            now = time.monotonic()
-            self.mic_wait_since = self.mic_wait_since or now
-            if now - self.mic_wait_since < 0.3:
-                return
-        self.mic_wait_since = None
-        # the reference for mic sample p is loopback sample p - delay (the echo arrives later)
-        ref = np.zeros(len(self.mic16), np.float32)
-        d = self.ref_delay
-        a, b = max(self.mic16_start, self.sys16_start + d), min(end, self.sys16_end + d)
-        if b > a:
-            ref[a - self.mic16_start:b - self.mic16_start] = self.sys16[a - d - self.sys16_start:b - d - self.sys16_start]
-        try:
-            clean = self.live_aec.process(self.mic16, ref)
-        except Exception:
-            log.exception("Live echo cancellation failed; continuing without it")
-            self.live_aec, clean = None, self.mic16
-        frame = SAMPLE_RATE // 10
-        for i in range(0, len(clean) - frame + 1, frame):
-            k = (self.mic16_start + i) // frame
-            self.mic_energy[k] = (float(np.mean(self.mic16[i:i + frame] ** 2)), float(np.mean(clean[i:i + frame] ** 2)),
-                                  float(np.mean(ref[i:i + frame] ** 2)))
-        if len(self.mic_energy) > 3000:                     # keep ~5 minutes
-            for k in sorted(self.mic_energy)[:-3000]:
-                del self.mic_energy[k]
-        self.mic_raw = np.concatenate([self.mic_raw, self.mic16])   # history for the delay estimate
-        if len(self.mic_raw) > SAMPLE_RATE * 12:
-            self.mic_raw_start += len(self.mic_raw) - SAMPLE_RATE * 12
-            self.mic_raw = self.mic_raw[-SAMPLE_RATE * 12:]
-        self.mic16_start = end
-        self.mic16 = np.zeros(0, np.float32)
+        clean = self.mic.drain(force)
         if len(clean):
-            self.audio16["mic"].append(np.clip(clean * 32767, -32768, 32767).astype(np.int16))
             self.segmenters["mic"].feed(clean)
 
     def _on_error(self, channel: str, message: str) -> None:
         self.errors[channel] = message
         hub.send({"type": "capture_error", "channel": channel, "message": message})
 
-    def _update_echo_delay(self, end: int) -> None:
-        """Every 5 s, re-measure how far the echo trails the loopback (speakers, Bluetooth and
-        drivers add 50-600 ms). Without this the echo canceller compares the wrong moments."""
-        if end - self.delay_checked_at < SAMPLE_RATE * 5:
-            return
-        self.delay_checked_at = end
-        a = max(self.mic_raw_start, self.sys16_start)
-        b = min(self.mic_raw_start + len(self.mic_raw), self.sys16_end)
-        if b - a < SAMPLE_RATE * 6 or float(np.mean(self.sys16[a - self.sys16_start:b - self.sys16_start] ** 2)) < 1e-6:
-            return  # not enough loopback audio to measure against
-        delay, corr = aec.estimate_delay(self.mic_raw[a - self.mic_raw_start:b - self.mic_raw_start],
-                                         self.sys16[a - self.sys16_start:b - self.sys16_start], SAMPLE_RATE)
-        if corr > 0.3 and abs(delay - self.ref_delay) > SAMPLE_RATE // 50:
-            log.info("Echo delay %d ms (corr %.2f)", delay * 1000 // SAMPLE_RATE, corr)
-            self.ref_delay = delay
-
-    def _speakers_active(self, start: float, end: float) -> bool:
-        frame = SAMPLE_RATE // 10
-        rows = [self.mic_energy.get(k) for k in range(int(start * 10), int(end * 10) + 1)]
-        rows = [r for r in rows if r]
-        return bool(rows) and sum(r[2] > 1e-5 for r in rows) / len(rows) > 0.5
-
-    def _mostly_echo(self, offset: float, audio: np.ndarray) -> bool:
-        """A mic sentence spoken while the speakers played, that the echo canceller cut by more
-        than 10 dB, was speaker sound, not you: real speech loses about 1 dB there."""
-        frame = SAMPLE_RATE // 10
-        k0 = int(offset * SAMPLE_RATE) // frame
-        rows = [self.mic_energy.get(k) for k in range(k0, k0 + len(audio) // frame + 1)]
-        rows = [r for r in rows if r]
-        if len(rows) < 5:
-            return False
-        raw, clean, ref = (sum(r[i] for r in rows) for i in range(3))
-        speakers_on = sum(r[2] > 1e-5 for r in rows) / len(rows) > 0.5
-        return speakers_on and 10 * np.log10((raw + 1e-12) / (clean + 1e-12)) > 10
-
     def _on_utterance(self, channel: str, offset: float, audio: np.ndarray) -> None:
-        if channel == "mic" and self._mostly_echo(offset, audio):
+        if channel == "mic" and livemic.mostly_echo(*self.mic.echo_stats(offset, offset + len(audio) / SAMPLE_RATE)):
             return
         if channel == "system":
             self.system_inflight += 1
@@ -566,16 +482,71 @@ class Session:
                                    "fast": self.copilot is not None}, group=self.meeting["id"]))
 
     def _on_pieces(self, channel: str, offset: float, pieces, audio=None) -> None:
+        """Speech-to-text result (on the STT worker): hand it to the line thread and return at once."""
         if channel == "system" and audio is not None:
             self.system_inflight = max(0, self.system_inflight - 1)
-        if not pieces:
-            return
-        mid = self.meeting["id"]
-        if channel == "mic":
-            # while the speakers play, a mic line must be confident speech: residual echo makes
-            # Whisper produce low-confidence fragments ("Thank you.", garbled half-sentences)
-            pieces = [p for p in pieces if not (self._speakers_active(offset + p.start, offset + p.end)
+        if pieces:
+            self.lines.put((channel, offset, pieces, audio))
+
+    def _line_loop(self) -> None:
+        while True:
+            item = self.lines.get()
+            if item is None:
+                return
+            try:
+                self._handle_line(*item)
+            except Exception:
+                log.exception("Live line failed")
+            finally:
+                self.lines.task_done()
+
+    def _embed(self, audio) -> np.ndarray | None:
+        if self.voices is None or audio is None or len(audio) < SAMPLE_RATE * diarize.MIN_PRINT:
+            return None
+        return self.voices.embed(audio)
+
+    def _mic_verdict(self, offset: float, audio, pieces) -> tuple[list, np.ndarray | None, float | None]:
+        """Which mic pieces are really you. Returns (pieces kept, voiceprint, similarity to your voice).
+
+        Tested on a recorded 1:1 call with a Bluetooth speaker: your own lines scored 0.76-0.96
+        against your voiceprint, the other person's voice leaking from the speaker 0.46-0.67, and
+        Whisper's inventions on that leak ("Gracias", "Thank you") 0.38-0.63."""
+        end = offset + len(audio) / SAMPLE_RATE
+        on, _ = self.mic.echo_stats(offset, end)
+        # while the speakers play, a mic line must be confident speech: residual echo makes
+        # Whisper produce low-confidence fragments ("Thank you.", garbled half-sentences)
+        if on >= 0.1:
+            pieces = [p for p in pieces if not (self.mic.speakers_active(offset + p.start, offset + p.end)
                                                 and (p.no_speech > 0.3 or p.logprob < -0.6))]
+            if not pieces:
+                return [], None, None
+        v = self._embed(audio)
+        if v is None:                                  # too short to recognise a voice
+            if self.call_heard:
+                pieces = [p for p in pieces if not livemic.INVENTED.match(p.text.strip())]
+            return ([] if on > 0.5 else pieces), None, None
+        if not self.me.ready():
+            # learn your voice from clear sentences while the speakers are silent
+            if on < 0.1 and len(audio) >= SAMPLE_RATE * 2 and all(p.logprob > -0.6 and p.no_speech < 0.3 for p in pieces):
+                self.me.add(v)
+            return pieces, v, None
+        sim = self.me.similarity(v)
+        if sim >= livemic.SURELY_ME:
+            self.me.add(v)                             # keeps up with a new headset or room
+        # In a call, the mic should only carry your voice: anything else is the other side leaking
+        # from the speakers, or Whisper inventing text on noise. In a room (nothing on the system
+        # channel) other people on the mic are real, so nothing is dropped there.
+        if self.call_heard and sim < livemic.NOT_ME:
+            log.info("Mic line dropped, not your voice (%.2f, speakers %.0f%%): %s", sim, on * 100,
+                     " ".join(p.text for p in pieces)[:80])
+            return [], v, sim
+        return pieces, v, sim
+
+    def _handle_line(self, channel: str, offset: float, pieces, audio) -> None:
+        mid = self.meeting["id"]
+        vprint, sim = None, None
+        if channel == "mic":
+            pieces, vprint, sim = self._mic_verdict(offset, audio, pieces)
             if not pieces:
                 return
         candidates = [{
@@ -592,37 +563,44 @@ class Session:
             kept = []
             for seg in candidates:
                 if channel == "mic":
-                    if live_echo(self.meeting["segments"], seg) is not None:
-                        continue                                  # the mic only heard the speakers
+                    # not clearly your voice and the same words as the other side said: speaker bleed
+                    if (sim is None or sim < livemic.SURELY_ME) and live_echo(self.meeting["segments"], seg) is not None:
+                        continue
                 else:
                     for copy in mic_copies(self.meeting["segments"], seg):   # system arrived later
-                        self.meeting["segments"].remove(copy)
-                        removed.append(copy["id"])
+                        if self.me_sim.get(copy["id"], 0.0) < livemic.SURELY_ME:
+                            self.meeting["segments"].remove(copy)
+                            removed.append(copy["id"])
                 kept.append(seg)
         for sid in removed:
             hub.send({"type": "segment_removed", "meeting_id": mid, "id": sid})
         if not kept:
             return                                                # nothing real: no speaker gets created
+        if channel == "system":
+            self.call_heard = True
         if self.copilot:
             for seg in kept:                                      # before the voiceprint: answers start sooner
                 self.copilot.on_segment(seg)
-        vprint = None
-        try:
-            speaker, vprint = self.speakers.assign(channel, audio) if audio is not None else (channel, None)
-        except Exception:
-            log.exception("Live speaker id failed")
-            speaker = channel
+        if channel == "mic" and self.mic_is_me:
+            speaker = ME
+        else:
+            if vprint is None and channel == "system":
+                vprint = self._embed(audio)
+            speaker = self.speakers.assign(channel, vprint)
         renamed = False
         with self.lock:
             names_ = self.meeting["speakers"]
             if speaker not in names_:
-                names_[speaker] = f"Speaker {speaker[3:]}" if speaker.startswith("spk") else speaker
+                names_[speaker] = self.my_name() if speaker == ME else f"Speaker {speaker[3:]}"
                 renamed = True
             for seg in kept:
-                seg["speaker"] = speaker  # live guess; the background diarization corrects it
+                seg["speaker"] = speaker  # live guess; the regrouping below corrects it
                 self.meeting["segments"].append(seg)
-                self.speakers.remember(seg["id"], vprint)
-                if names.is_default(names_.get(speaker, "")):
+                if channel == "system":
+                    self.speakers.remember(seg["id"], vprint)
+                elif sim is not None:
+                    self.me_sim[seg["id"]] = sim
+                if speaker != ME and names.is_default(names_.get(speaker, "")):
                     found = names.find_name(seg["text"])
                     if found and found.lower() not in {v.lower() for v in names_.values()}:
                         names_[speaker] = found
@@ -636,6 +614,8 @@ class Session:
             hub.send({"type": "segment", "meeting_id": mid, "segment": seg})
         self._translate(kept)
         self._polish(channel, offset, audio, kept)
+        if channel == "system" and time.monotonic() >= self.regroup_due:
+            self._regroup()
 
     def _translate(self, segs: list[dict]) -> None:
         """Automatic translation: every new line that is not in the target language goes to the translator.
@@ -660,69 +640,35 @@ class Session:
         for seg in segs:
             editor.submit(self.meeting["id"], seg["id"], seg["text"])
 
-    def _rediarize_loop(self) -> None:
-        """Run the same full diarization as after the meeting on everything recorded so far, and
-        correct the live labels. Interval grows with the meeting (at least 2x the last run time)."""
-        interval, seen = 20.0, 0
-        window = 180.0   # only the last 3 minutes are re-clustered: cost stays flat in long meetings
-        while not self.stop_event.wait(interval):
-            with self.lock:
-                horizon = self.elapsed - window
-                segs = [dict(s) for s in self.meeting["segments"] if s["end"] >= horizon]
-                tracks = {ch: np.concatenate(parts).astype(np.float32) / 32767
-                          for ch, parts in self.audio16.items() if parts}
-            total = len(self.meeting["segments"])
-            if len(segs) < 3 or total == seen or not tracks:
-                continue
-            seen = total
-            started = time.monotonic()
-            try:
-                labels = diarize.label_in_subprocess(tracks, segs, threads=2)
-                for s in segs:
-                    s["speaker"] = labels.get(s["id"], s.get("speaker", ""))
-            except Exception:
-                log.exception("Live re-diarization failed")
-                continue
-            took = time.monotonic() - started
-            interval = max(20.0, 2 * took)
-            self._apply_relabel(segs)
-            log.info("Live re-diarization: %d lines, %.1fs, next in %.0fs", len(segs), took, interval)
-
-    def _apply_relabel(self, segs: list[dict]) -> None:
-        """Map the new clusters onto the live speaker keys (largest shared talk time first) so
-        names stay attached, then update every line and tell the browser."""
+    def _regroup(self) -> None:
+        """Cluster every remote line heard so far again (the method used after the meeting) and
+        correct the live labels. Voiceprints are already known, so this takes milliseconds."""
+        started = time.monotonic()
         with self.lock:
-            current = {s["id"]: s for s in self.meeting["segments"]}
-            overlap: dict[tuple[str, str], float] = {}
-            for s in segs:
-                old = current.get(s["id"])
-                if old and s.get("speaker", "").startswith("spk"):
-                    pair = (s["speaker"], old["speaker"])
-                    overlap[pair] = overlap.get(pair, 0.0) + (s["end"] - s["start"])
-            mapping, used = {}, set()
-            for (new, old), _ in sorted(overlap.items(), key=lambda kv: -kv[1]):
-                if new not in mapping and old not in used:
-                    mapping[new] = old
-                    used.add(old)
+            segs = [dict(s) for s in self.meeting["segments"] if s["channel"] == "system"]
+        if len(segs) < 4:
+            return
+        labels = self.speakers.regroup(segs)
+        with self.lock:
             names_ = self.meeting["speakers"]
             assign = {}
-            for s in segs:
-                new = s.get("speaker", "")
-                if not new.startswith("spk") or s["id"] not in current:
-                    continue
-                if new not in mapping:  # a speaker the live guess had merged into someone else
-                    key = self.speakers._new_key()
-                    mapping[new] = key
+            for s in self.meeting["segments"]:
+                key = labels.get(s["id"])
+                if key and key != s.get("speaker"):
+                    s["speaker"] = key
+                    assign[s["id"]] = key
                     names_.setdefault(key, f"Speaker {key[3:]}")
-                assign[s["id"]] = mapping[new]
-            for sid, key in assign.items():
-                current[sid]["speaker"] = key
+            if not assign:
+                self.regroup_due = time.monotonic() + 15
+                return
             names.auto_name(self.meeting)
-            keep = {s["speaker"] for s in self.meeting["segments"]}
+            keep = {s["speaker"] for s in self.meeting["segments"]} | ({ME} if self.mic_is_me else set())
             self.meeting["speakers"] = {k: v for k, v in names_.items() if k in keep}
-            self.speakers.rebuild({sid: k for sid, k in assign.items()})
             storage.save(self.meeting)
             speakers_now = dict(self.meeting["speakers"])
+        took = time.monotonic() - started
+        self.regroup_due = time.monotonic() + max(15.0, 20 * took)
+        log.info("Live regroup: %d remote lines, %d relabelled, %.2fs", len(segs), len(assign), took)
         hub.send({"type": "relabel", "meeting_id": self.meeting["id"], "assign": assign, "speakers": speakers_now})
 
     def _interim_loop(self) -> None:
@@ -764,7 +710,7 @@ class Session:
         st["prev"] = words
         committed = " ".join(st["committed"])
         tentative = " ".join(words[len(st["committed"]):])  # the part that may still change
-        last = self.speakers.last.get(channel)
+        last = ME if channel == "mic" and self.mic_is_me else self.speakers.last.get(channel)
         label = self.meeting["speakers"].get(last, "") if last else ""
         hub.send({"type": "interim", "meeting_id": self.meeting["id"], "channel": channel,
                   "start": round(offset, 2), "text": text, "committed": committed,
@@ -799,7 +745,7 @@ class Session:
                 if len(tail):
                     self.writers[ch].write(tail)
                     if ch == "mic":
-                        self.mic16 = np.concatenate([self.mic16, tail])
+                        self.mic.add_mic(tail)
                     else:
                         self.segmenters[ch].feed(tail)
             self._drain_mic(force=True)
@@ -818,11 +764,16 @@ class Session:
         mid = self.meeting["id"]
         hub.send({"type": "meeting", "meeting_id": mid, "status": "processing", "step": "transcribing"})
         engine.wait_group(mid)             # this meeting's last live sentences (not other meetings' work)
+        self.lines.join()                  # ... and their voiceprints and speakers
+        self.lines.put(None)
+        self.me.save()
+        if self.voices:
+            self.voices.close()
         with self.lock:
             self.closed = True
             for w in [*self.writers.values(), *self.hq_writers.values()]:
                 w.close()
-            remove_echo(self.meeting["segments"])
+            remove_echo(self.meeting["segments"], keep={k for k, v in self.me_sim.items() if v >= livemic.SURELY_ME})
         postq.submit(mid, self._post_process)   # waits its turn, and while another recording runs
 
     def _post_process(self) -> None:
@@ -1221,12 +1172,14 @@ def _words(text: str) -> list[str]:
     return re.findall(r"\w+", text.lower())
 
 
-def remove_echo(segments: list[dict]) -> None:
-    """Drop mic segments that are just the meeting audio leaking from the speakers into the mic."""
+def remove_echo(segments: list[dict], keep: set[str] | None = None) -> None:
+    """Drop mic segments that are just the meeting audio leaking from the speakers into the mic.
+    `keep`: lines known to be in your voice (the same words can be said on both sides: "ciao")."""
     system = [s for s in segments if s["channel"] == "system"]
+    sure = keep or set()
     keep = []
     for seg in segments:
-        if seg["channel"] == "mic":
+        if seg["channel"] == "mic" and seg["id"] not in sure:
             words = _words(seg["text"])
             nearby = set()
             for s in system:
@@ -1353,9 +1306,26 @@ def run_diarization(meeting: dict, num_speakers: int) -> None:
         path = folder / f"{ch}.ogg"
         if path.exists():
             tracks[ch], _ = sf.read(path, dtype="float32")
-    diarize.label_meeting(tracks, meeting["segments"], num_speakers)
+    settings = load_settings()
+    mic_is_me = settings.get("mic_is_me", True) is not False
+    voice = livemic.Voice(DATA_DIR / "my_voice.npy")
+    me_vec = voice.sum if voice.ready() else None
+    # runs in a child process: a recording that starts meanwhile must never wait for it
+    result = diarize.label_in_subprocess(tracks, meeting["segments"], num_speakers, mic_is_me, me=me_vec)
+    if result["drop"]:
+        gone = set(result["drop"])
+        log.info("Removed %d mic lines that were not your voice", len(gone))
+        meeting["segments"] = [s for s in meeting["segments"] if s["id"] not in gone]
+    for seg in meeting["segments"]:
+        seg["speaker"] = result["labels"].get(seg["id"], seg.get("speaker", ""))
+    if result["me"] is not None and not voice.ready():
+        voice.add(result["me"] / (np.linalg.norm(result["me"]) + 1e-9))
+        voice.count = max(voice.count, 3)
+        voice.save()
+    my_name = str(settings.get("my_name") or "").strip() or "Me"
     used = sorted({s["speaker"] for s in meeting["segments"]}, key=lambda k: (not k.startswith("spk"), len(k), k))
-    meeting["speakers"] = {k: f"Speaker {k[3:]}" if k.startswith("spk") else meeting["speakers"].get(k, k) for k in used}
+    meeting["speakers"] = {k: f"Speaker {k[3:]}" if k.startswith("spk") else my_name if k == ME
+                           else meeting["speakers"].get(k, k) for k in used}
     names.auto_name(meeting)  # "my name is Sarah" -> Sarah; speakers who never say their name stay "Speaker N"
 
 

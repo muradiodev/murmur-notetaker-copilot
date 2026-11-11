@@ -254,6 +254,27 @@ body.resizing { cursor: col-resize; user-select: none; }
 .turn .range.static:hover { color: var(--text-3); }
 .turn.interim .who::after { content: " \2026"; }
 .live-feed .waiting { color: var(--text-3); margin-top: 40px; }
+.live-feed { overflow-anchor: auto; }
+#liveView .cp-left { position: relative; }
+/* what is being said right now: fixed height, newest words at the bottom, never moves the transcript */
+.live-now { display: none; }
+#liveView.notes-live:not(.copilot) .live-now {
+  display: flex; flex-direction: column; justify-content: flex-end; flex: none;
+  height: 4.6em; overflow: hidden; padding: 8px 2px 10px; border-top: 1px solid var(--line);
+  font-size: 14px; line-height: 1.5; color: var(--text-2);
+}
+.now-row { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.now-row .who { flex: none; font-weight: 600; color: var(--spk, var(--text-3)); font-size: 12.5px; }
+.now-row .now-text { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.now-row.idle { color: var(--text-3); }
+.now-row .tentative { color: var(--text-3); }
+.live-jump {
+  position: absolute; right: 16px; bottom: calc(4.6em + 26px); z-index: 2;
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 12.5px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / .18); cursor: pointer;
+}
+.live-jump.hidden, #liveView.copilot .live-jump { display: none; }
 
 /* screen sharing */
 .screen-preview { display: flex; align-items: center; gap: 14px; margin-top: 16px; font-size: 13px; color: var(--text-2); }

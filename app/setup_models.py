@@ -15,7 +15,10 @@ SEGMENTATION_URL = f"{SHERPA}/speaker-segmentation-models/sherpa-onnx-pyannote-s
 SILERO_URL = f"{SHERPA}/asr-models/silero_vad.onnx"
 # DTLN-aec ONNX conversions (MIT-licensed weights by Westhausen & Meyer), as shipped by anarlog
 DTLN_URL = "https://raw.githubusercontent.com/fastrepl/anarlog/main/crates/aec/data/models/model_128_{part}.onnx"
-EMBEDDING_URL = f"{SHERPA}/speaker-recongition-models/wespeaker_en_voxceleb_resnet34.onnx"
+# 3D-Speaker ERes2NetV2 (Apache-2.0), trained on 200k speakers: separates voices on compressed call
+# audio far better than the older WeSpeaker ResNet34 (5% vs 16% errors on our calls)
+EMBEDDING_FILE = "3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx"
+EMBEDDING_URL = f"{SHERPA}/speaker-recongition-models/{EMBEDDING_FILE}"
 
 
 def fetch(url: str, dest) -> None:
@@ -87,9 +90,9 @@ def diarization() -> None:
             tar.extractall(DIARIZATION_DIR, filter="data")
         archive.unlink()
     print("✓ Segmentation model")
-    emb = DIARIZATION_DIR / "wespeaker_en_voxceleb_resnet34.onnx"
+    emb = DIARIZATION_DIR / EMBEDDING_FILE
     if not emb.exists():
-        print("Downloading speaker embedding model…")
+        print("Downloading speaker embedding model (~70 MB)…")
         fetch(EMBEDDING_URL, emb)
     print("✓ Speaker embedding model")
 
